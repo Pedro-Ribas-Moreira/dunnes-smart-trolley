@@ -14,19 +14,25 @@ import ScanPage from './pages/ScanPage';
 
 const appId = 'dunnes-trolley';
 
-// --- PROFILE PAGE COMPONENT ---
+// ----------------------------------------------------
+// PROFILE PAGE COMPONENT
+// ----------------------------------------------------
+
 function ProfilePage({ user }) {
   const [isSignUp, setIsSignUp] = useState(false);
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const isAnonymous = user ? user.isAnonymous : true;
 
-  const handleAuth = async (e) => {
-    e.preventDefault();
+  const handleAuth = async (event) => {
+    event.preventDefault();
+
     setError('');
     setLoading(true);
 
@@ -40,15 +46,39 @@ function ProfilePage({ user }) {
           createdAt: new Date().toISOString(),
         });
       } else {
-        await signInWithEmailAndPassword(auth, email, password);
+        await signInWithEmailAndPassword(
+          auth,
+          email,
+          password
+        );
       }
-    } catch (err) {
-      setError(err.message.replace('Firebase: ', ''));
+    } catch (authenticationError) {
+      console.error(
+        'Authentication error:',
+        authenticationError
+      );
+
+      setError(
+        authenticationError.message.replace(
+          'Firebase: ',
+          ''
+        )
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (logoutError) {
+      console.error('Logout error:', logoutError);
+      setError('The account could not be logged out.');
+    }
+  };
+
+  // Display this screen when the user has a registered account.
   if (!isAnonymous) {
     return (
       <div className='p-6'>
@@ -67,6 +97,7 @@ function ProfilePage({ user }) {
     );
   }
 
+  // Display this form while the user is anonymous.
   return (
     <div className='p-6'>
       <div className='bg-white p-6 rounded-2xl shadow-sm border border-gray-100'>
@@ -114,7 +145,10 @@ function ProfilePage({ user }) {
   );
 }
 
-// --- MAIN APP COMPONENT ---
+// ----------------------------------------------------
+// MAIN APP COMPONENT
+// ----------------------------------------------------
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
@@ -122,10 +156,15 @@ export default function App() {
   const [cartItems, setCartItems] = useState([]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-      } else {
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (currentUser) => {
+        if (currentUser) {
+          setUser(currentUser);
+          setLoadingAuth(false);
+          return;
+        }
+
         try {
           await signInAnonymously(auth);
         } catch (error) {
@@ -137,14 +176,51 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // --------------------------------------------------
+  // REAL-TIME FIRESTORE CART LISTENER
+  // --------------------------------------------------
+
   useEffect(() => {
-    if (!user) return;
-    const cartRef = collection(db, 'artifacts', appId, 'users', user.uid, 'cart');
-    const unsubscribe = onSnapshot(cartRef, (snapshot) => {
-      const items = [];
-      snapshot.forEach((doc) => items.push({ id: doc.id, ...doc.data() }));
-      setCartItems(items);
-    });
+    if (!user) {
+      setCartItems([]);
+      return undefined;
+    }
+
+    setCartError('');
+
+    const cartRef = collection(
+      db,
+      'artifacts',
+      appId,
+      'users',
+      user.uid,
+      'cart'
+    );
+
+    const unsubscribe = onSnapshot(
+      cartRef,
+      (snapshot) => {
+        const items = snapshot.docs.map(
+          (cartDocument) => ({
+            id: cartDocument.id,
+            ...cartDocument.data(),
+          })
+        );
+
+        setCartItems(items);
+      },
+      (firestoreError) => {
+        console.error(
+          'Cart listener error:',
+          firestoreError
+        );
+
+        setCartError(
+          'Your trolley could not be loaded.'
+        );
+      }
+    );
+
     return () => unsubscribe();
   }, [user]);
 

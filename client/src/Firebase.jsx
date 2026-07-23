@@ -21,12 +21,10 @@
 // const analytics = getAnalytics(app);
 
 
-// Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyAImHNkhaLaWykYR9vJPzzX_7GJpjc9Fdg",
   authDomain: "dunnes-smart-trolley.firebaseapp.com",
@@ -40,6 +38,5 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Export Authentication and Firestore to use in our React components
 export const auth = getAuth(app);
 export const db = getFirestore(app);
