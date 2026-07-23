@@ -1,4 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useState,
+} from 'react';
 
 import {
   createUserWithEmailAndPassword,
@@ -30,21 +34,16 @@ import {
 import { auth, db } from './Firebase';
 
 import ScanPage from './pages/ScanPage';
+import ProductConfirmationPage from './pages/ProductConfirmationPage';
 import CartPage from './pages/CartPage';
 
 const appId = 'dunnes-trolley';
 
-// ----------------------------------------------------
-// PROFILE PAGE COMPONENT
-// ----------------------------------------------------
-
 function ProfilePage({ user }) {
   const [isSignUp, setIsSignUp] = useState(false);
-
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -58,11 +57,12 @@ function ProfilePage({ user }) {
 
     try {
       if (isSignUp) {
-        const credential = await createUserWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
+        const credential =
+          await createUserWithEmailAndPassword(
+            auth,
+            email,
+            password
+          );
 
         await updateProfile(credential.user, {
           displayName: name,
@@ -90,17 +90,19 @@ function ProfilePage({ user }) {
           password
         );
       }
-    } catch (authenticationError) {
+    } catch (authError) {
       console.error(
         'Authentication error:',
-        authenticationError
+        authError
       );
 
       setError(
-        authenticationError.message.replace(
-          'Firebase: ',
-          ''
-        )
+        authError?.message
+          ? authError.message.replace(
+              'Firebase: ',
+              ''
+            )
+          : 'Authentication failed.'
       );
     } finally {
       setLoading(false);
@@ -111,12 +113,17 @@ function ProfilePage({ user }) {
     try {
       await signOut(auth);
     } catch (logoutError) {
-      console.error('Logout error:', logoutError);
-      setError('The account could not be logged out.');
+      console.error(
+        'Logout error:',
+        logoutError
+      );
+
+      setError(
+        'The account could not be logged out.'
+      );
     }
   };
 
-  // Display this screen when the user has a registered account.
   if (!isAnonymous) {
     return (
       <div className="p-6">
@@ -152,7 +159,6 @@ function ProfilePage({ user }) {
             className="w-full mt-6 bg-red-50 text-red-600 font-bold py-3 rounded-xl flex justify-center items-center gap-2"
           >
             <LogOut size={20} />
-
             Log Out
           </button>
         </div>
@@ -160,7 +166,6 @@ function ProfilePage({ user }) {
     );
   }
 
-  // Display this form while the user is anonymous.
   return (
     <div className="p-6">
       <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
@@ -217,7 +222,9 @@ function ProfilePage({ user }) {
                   type="text"
                   value={name}
                   onChange={(event) =>
-                    setName(event.target.value)
+                    setName(
+                      event.target.value
+                    )
                   }
                   placeholder="Your name"
                   required
@@ -246,7 +253,9 @@ function ProfilePage({ user }) {
                 type="email"
                 value={email}
                 onChange={(event) =>
-                  setEmail(event.target.value)
+                  setEmail(
+                    event.target.value
+                  )
                 }
                 placeholder="name@example.com"
                 required
@@ -274,7 +283,9 @@ function ProfilePage({ user }) {
                 type="password"
                 value={password}
                 onChange={(event) =>
-                  setPassword(event.target.value)
+                  setPassword(
+                    event.target.value
+                  )
                 }
                 placeholder="Enter your password"
                 required
@@ -307,7 +318,11 @@ function ProfilePage({ user }) {
         <button
           type="button"
           onClick={() => {
-            setIsSignUp((currentValue) => !currentValue);
+            setIsSignUp(
+              (currentValue) =>
+                !currentValue
+            );
+
             setError('');
           }}
           className="w-full mt-4 text-sm text-green-700 font-semibold underline"
@@ -321,10 +336,6 @@ function ProfilePage({ user }) {
   );
 }
 
-// ----------------------------------------------------
-// MAIN APP COMPONENT
-// ----------------------------------------------------
-
 export default function App() {
   const [user, setUser] = useState(null);
   const [loadingAuth, setLoadingAuth] =
@@ -333,48 +344,48 @@ export default function App() {
   const [activeTab, setActiveTab] =
     useState('scan');
 
+  const [
+    pendingBarcode,
+    setPendingBarcode,
+  ] = useState('');
+
   const [cartItems, setCartItems] =
     useState([]);
 
   const [cartError, setCartError] =
     useState('');
 
-  // --------------------------------------------------
-  // FIREBASE AUTHENTICATION
-  // --------------------------------------------------
-
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      async (currentUser) => {
-        if (currentUser) {
-          setUser(currentUser);
-          setLoadingAuth(false);
-          return;
+    const unsubscribe =
+      onAuthStateChanged(
+        auth,
+        async (currentUser) => {
+          if (currentUser) {
+            setUser(currentUser);
+            setLoadingAuth(false);
+            return;
+          }
+
+          try {
+            await signInAnonymously(
+              auth
+            );
+          } catch (authError) {
+            console.error(
+              'Anonymous authentication error:',
+              authError
+            );
+
+            setLoadingAuth(false);
+          }
         }
+      );
 
-        try {
-          await signInAnonymously(auth);
-        } catch (authenticationError) {
-          console.error(
-            'Anonymous authentication error:',
-            authenticationError
-          );
-
-          setLoadingAuth(false);
-        }
-      }
-    );
-
-    return () => unsubscribe();
+    return unsubscribe;
   }, []);
 
-  // --------------------------------------------------
-  // REAL-TIME FIRESTORE CART LISTENER
-  // --------------------------------------------------
-
   useEffect(() => {
-    if (!user) {
+    if (!user?.uid) {
       setCartItems([]);
       return undefined;
     }
@@ -393,12 +404,13 @@ export default function App() {
     const unsubscribe = onSnapshot(
       cartRef,
       (snapshot) => {
-        const items = snapshot.docs.map(
-          (cartDocument) => ({
-            id: cartDocument.id,
-            ...cartDocument.data(),
-          })
-        );
+        const items =
+          snapshot.docs.map(
+            (cartDocument) => ({
+              id: cartDocument.id,
+              ...cartDocument.data(),
+            })
+          );
 
         setCartItems(items);
       },
@@ -414,33 +426,71 @@ export default function App() {
       }
     );
 
-    return () => unsubscribe();
-  }, [user]);
+    return unsubscribe;
+  }, [user?.uid]);
 
-  // --------------------------------------------------
-  // CALCULATE CART TOTAL
-  // --------------------------------------------------
+  const handleBarcodeScanned =
+    useCallback((barcode) => {
+      setPendingBarcode(barcode);
+      setActiveTab('confirm');
+    }, []);
+
+  const returnToScanner =
+    useCallback(() => {
+      setPendingBarcode('');
+      setActiveTab('scan');
+    }, []);
+
+  const openCartAfterAdd =
+    useCallback(() => {
+      setPendingBarcode('');
+      setActiveTab('cart');
+    }, []);
+
+  const openScanTab = () => {
+    setPendingBarcode('');
+    setActiveTab('scan');
+  };
+
+  const openCartTab = () => {
+    setPendingBarcode('');
+    setActiveTab('cart');
+  };
+
+  const openProfileTab = () => {
+    setPendingBarcode('');
+    setActiveTab('profile');
+  };
 
   const cartTotal = cartItems.reduce(
     (sum, item) => {
-      const price = Number(item.price || 0);
-      const quantity = Number(item.quantity || 1);
+      const price = Number(
+        item.price || 0
+      );
 
-      return sum + price * quantity;
+      const quantity = Number(
+        item.quantity || 1
+      );
+
+      return (
+        sum + price * quantity
+      );
     },
     0
   );
 
-  const totalQuantity = cartItems.reduce(
-    (sum, item) => {
-      return sum + Number(item.quantity || 1);
-    },
-    0
-  );
-
-  // --------------------------------------------------
-  // AUTHENTICATION LOADING SCREEN
-  // --------------------------------------------------
+  const totalQuantity =
+    cartItems.reduce(
+      (sum, item) => {
+        return (
+          sum +
+          Number(
+            item.quantity || 1
+          )
+        );
+      },
+      0
+    );
 
   if (loadingAuth) {
     return (
@@ -457,14 +507,9 @@ export default function App() {
     );
   }
 
-  // --------------------------------------------------
-  // MAIN APPLICATION
-  // --------------------------------------------------
-
   return (
     <div className="min-h-screen bg-gray-100 flex justify-center">
       <div className="w-full max-w-md min-h-screen bg-white flex flex-col shadow-xl">
-        {/* Header */}
         <header className="bg-green-800 text-white px-5 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold">
@@ -491,7 +536,6 @@ export default function App() {
           </div>
         </header>
 
-        {/* Main page content */}
         <main className="flex-1 overflow-y-auto bg-gray-50 pb-24">
           {cartError && (
             <div className="m-4 bg-red-50 border border-red-200 rounded-xl p-3">
@@ -501,29 +545,57 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'scan' && (
-            <ScanPage
+          <ScanPage
+            user={user}
+            active={
+              activeTab === 'scan'
+            }
+            onBarcodeScanned={
+              handleBarcodeScanned
+            }
+          />
+
+          {activeTab ===
+            'confirm' && (
+            <ProductConfirmationPage
+              barcode={
+                pendingBarcode
+              }
               user={user}
-              setActiveTab={setActiveTab}
+              onCancel={
+                returnToScanner
+              }
+              onProductAdded={
+                openCartAfterAdd
+              }
             />
           )}
 
           {activeTab === 'cart' && (
-            <CartPage cartItems={cartItems} />
+            <CartPage
+              cartItems={
+                cartItems
+              }
+            />
           )}
 
-          {activeTab === 'profile' && (
-            <ProfilePage user={user} />
+          {activeTab ===
+            'profile' && (
+            <ProfilePage
+              user={user}
+            />
           )}
         </main>
 
-        {/* Bottom navigation */}
         <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-200 px-8 py-3 flex items-center justify-between z-50">
           <button
             type="button"
-            onClick={() => setActiveTab('scan')}
+            onClick={openScanTab}
             className={`flex flex-col items-center gap-1 ${
-              activeTab === 'scan'
+              activeTab ===
+                'scan' ||
+              activeTab ===
+                'confirm'
                 ? 'text-green-700'
                 : 'text-gray-400'
             }`}
@@ -537,16 +609,20 @@ export default function App() {
 
           <button
             type="button"
-            onClick={() => setActiveTab('cart')}
+            onClick={openCartTab}
             className={`relative flex flex-col items-center gap-1 ${
-              activeTab === 'cart'
+              activeTab ===
+              'cart'
                 ? 'text-green-700'
                 : 'text-gray-400'
             }`}
           >
-            <ShoppingCart size={24} />
+            <ShoppingCart
+              size={24}
+            />
 
-            {totalQuantity > 0 && (
+            {totalQuantity >
+              0 && (
               <span className="absolute -top-2 -right-3 min-w-5 h-5 px-1 bg-green-700 text-white text-xs rounded-full flex items-center justify-center">
                 {totalQuantity}
               </span>
@@ -559,11 +635,12 @@ export default function App() {
 
           <button
             type="button"
-            onClick={() =>
-              setActiveTab('profile')
+            onClick={
+              openProfileTab
             }
             className={`flex flex-col items-center gap-1 ${
-              activeTab === 'profile'
+              activeTab ===
+              'profile'
                 ? 'text-green-700'
                 : 'text-gray-400'
             }`}
