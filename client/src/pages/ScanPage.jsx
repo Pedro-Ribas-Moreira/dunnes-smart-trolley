@@ -135,12 +135,14 @@ function ScanPage({ user, active, onBarcodeScanned }) {
         active ? 'block' : 'hidden'
       }`}
     >
-      <div
-        id="reader"
-        className="w-full aspect-square bg-black rounded-3xl overflow-hidden shadow-inner border-2 border-gray-200 relative"
-      >
-        {!isProcessing && !cameraError && (
-          <div className="absolute w-full h-0.5 bg-green-500 shadow-[0_0_8px_2px_rgba(34,197,94,0.6)] top-1/2 animate-pulse z-10" />
+      <div className="w-full aspect-square relative">
+        <div
+          id="reader"
+          className="absolute inset-0 bg-black rounded-3xl overflow-hidden shadow-inner border-2 border-gray-200"
+        />
+
+        {!isProcessing && !cameraError && active && (
+          <div className="pointer-events-none absolute left-0 right-0 top-1/2 h-0.5 bg-green-500 shadow-[0_0_8px_2px_rgba(34,197,94,0.6)] animate-pulse z-10" />
         )}
       </div>
 
