@@ -11,6 +11,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { Loader2 } from 'lucide-react';
 
 import { db } from '../Firebase';
+import { mobileLog } from '../lib/mobileLog';
 
 const appId = 'dunnes-trolley';
 
@@ -31,6 +32,11 @@ function ScanPage({ user, setActiveTab }) {
 
     setIsProcessing(true);
     setScanError('');
+
+    await mobileLog('Adding product to cart', {
+      barcode: scannedProduct.barcode,
+      quantity,
+    });
 
     try {
       const cartItemRef = doc(
@@ -55,29 +61,56 @@ function ScanPage({ user, setActiveTab }) {
         }
       );
 
+      await mobileLog('Product added to cart', {
+        barcode: scannedProduct.barcode,
+        quantity,
+      });
+
       setScannedProduct(null);
       setQuantity(1);
       setActiveTab('cart');
     } catch (error) {
       console.error('Cart error:', error);
+
+      await mobileLog(
+        'Cart save failed',
+        {
+          message: error.message,
+          stack: error.stack,
+        },
+        'ERROR'
+      );
+
       setScanError('The product could not be added to the cart.');
       setIsProcessing(false);
     }
   };
 
-  const closeProductModal = () => {
+  const closeProductModal = async () => {
+    await mobileLog('Product modal closed');
+
     setScannedProduct(null);
     setQuantity(1);
     setScanError('');
     setIsProcessing(false);
+
     isProcessingRef.current = false;
 
     try {
       if (scannerRef.current?.isPaused()) {
         scannerRef.current.resume();
+        await mobileLog('Scanner resumed');
       }
     } catch (error) {
       console.error('Scanner resume error:', error);
+
+      await mobileLog(
+        'Scanner resume failed',
+        {
+          message: error.message,
+        },
+        'ERROR'
+      );
     }
   };
 
@@ -92,6 +125,8 @@ function ScanPage({ user, setActiveTab }) {
       try {
         setCameraError('');
         setScanError('');
+
+        await mobileLog('Starting scanner');
 
         const scanner = new Html5Qrcode('reader');
         scannerRef.current = scanner;
@@ -119,14 +154,32 @@ function ScanPage({ user, setActiveTab }) {
               setScanError('');
             }
 
+            await mobileLog('Barcode detected', {
+              barcode: decodedText,
+            });
+
             try {
-              scanner.pause(true);
+              const controller = new AbortController();
+
+              const timeoutId = setTimeout(() => {
+                controller.abort();
+              }, 10000);
 
               const response = await fetch(
                 `https://world.openfoodfacts.org/api/v0/product/${encodeURIComponent(
                   decodedText
-                )}.json`
+                )}.json`,
+                {
+                  signal: controller.signal,
+                }
               );
+
+              clearTimeout(timeoutId);
+
+              await mobileLog('Open Food Facts response received', {
+                status: response.status,
+                ok: response.ok,
+              });
 
               if (!response.ok) {
                 throw new Error(
@@ -135,6 +188,11 @@ function ScanPage({ user, setActiveTab }) {
               }
 
               const data = await response.json();
+
+              await mobileLog('Product data received', {
+                found: data.status,
+                productName: data.product?.product_name,
+              });
 
               if (data.status !== 1 || !data.product) {
                 throw new Error(
@@ -159,20 +217,41 @@ function ScanPage({ user, setActiveTab }) {
                   '',
               };
 
+              scanner.pause(true);
+
+              await mobileLog('Scanner paused');
+
               if (isMounted) {
                 setScannedProduct(product);
                 setQuantity(1);
                 setIsProcessing(false);
               }
+
+              await mobileLog('Opening product modal', product);
             } catch (error) {
               console.error('Product processing error:', error);
 
-              if (isMounted) {
-                setScanError(
-                  error.message ||
-                    'The product could not be scanned.'
-                );
+              let errorMessage = 'The product could not be scanned.';
 
+              if (error.name === 'AbortError') {
+                errorMessage =
+                  'The product lookup took too long. Please try again.';
+              } else if (error.message) {
+                errorMessage = error.message;
+              }
+
+              await mobileLog(
+                'Product processing failed',
+                {
+                  message: error.message,
+                  name: error.name,
+                  stack: error.stack,
+                },
+                'ERROR'
+              );
+
+              if (isMounted) {
+                setScanError(errorMessage);
                 setIsProcessing(false);
               }
 
@@ -181,19 +260,39 @@ function ScanPage({ user, setActiveTab }) {
               try {
                 if (scanner.isPaused()) {
                   scanner.resume();
+                  await mobileLog('Scanner resumed after error');
                 }
               } catch (resumeError) {
                 console.error(
                   'Scanner resume error:',
                   resumeError
                 );
+
+                await mobileLog(
+                  'Scanner resume failed after error',
+                  {
+                    message: resumeError.message,
+                  },
+                  'ERROR'
+                );
               }
             }
           },
           () => {}
         );
+
+        await mobileLog('Scanner started successfully');
       } catch (error) {
         console.error('Camera start error:', error);
+
+        await mobileLog(
+          'Camera start failed',
+          {
+            message: error.message,
+            stack: error.stack,
+          },
+          'ERROR'
+        );
 
         if (isMounted) {
           setCameraError(
