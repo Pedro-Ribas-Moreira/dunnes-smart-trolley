@@ -573,9 +573,8 @@ export default function App() {
 
           {activeTab === 'cart' && (
             <CartPage
-              cartItems={
-                cartItems
-              }
+            cartItems={cartItems}
+            user={user}
             />
           )}
 
