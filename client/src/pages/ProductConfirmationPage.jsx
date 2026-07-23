@@ -27,6 +27,7 @@ function ProductConfirmationPage({
   onProductAdded,
 }) {
   const [product, setProduct] = useState(null);
+  const [price, setPrice] = useState('1.50');
   const [quantity, setQuantity] = useState(1);
   const [loadingProduct, setLoadingProduct] = useState(true);
   const [savingProduct, setSavingProduct] = useState(false);
@@ -40,6 +41,8 @@ function ProductConfirmationPage({
     }
 
     const controller = new AbortController();
+    let active = true;
+    let timeoutId;
 
     const loadProduct = async () => {
       setLoadingProduct(true);
@@ -50,7 +53,7 @@ function ProductConfirmationPage({
       });
 
       try {
-        const timeoutId = setTimeout(() => {
+        timeoutId = setTimeout(() => {
           controller.abort();
         }, 10000);
 
@@ -62,13 +65,6 @@ function ProductConfirmationPage({
             signal: controller.signal,
           }
         );
-
-        clearTimeout(timeoutId);
-
-        await mobileLog('Open Food Facts response received', {
-          status: response.status,
-          ok: response.ok,
-        });
 
         if (!response.ok) {
           throw new Error(
@@ -107,13 +103,22 @@ function ProductConfirmationPage({
             '',
         };
 
+        if (!active) {
+          return;
+        }
+
         setProduct(productResult);
+        setPrice(productResult.price.toFixed(2));
 
         await mobileLog('Product confirmation page ready', {
           barcode,
           productName,
         });
       } catch (lookupError) {
+        if (!active) {
+          return;
+        }
+
         let message = 'The product could not be loaded.';
 
         if (lookupError?.name === 'AbortError') {
@@ -135,19 +140,56 @@ function ProductConfirmationPage({
           'ERROR'
         );
       } finally {
-        setLoadingProduct(false);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+
+        if (active) {
+          setLoadingProduct(false);
+        }
       }
     };
 
     loadProduct();
 
     return () => {
+      active = false;
+
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+
       controller.abort();
     };
   }, [barcode]);
 
+  const handlePriceChange = (event) => {
+    const value = event.target.value;
+
+    if (/^\d*[.,]?\d{0,2}$/.test(value)) {
+      setPrice(value);
+      setError('');
+    }
+  };
+
+  const getNumericPrice = () => {
+    return Number(
+      String(price).trim().replace(',', '.')
+    );
+  };
+
   const addProductToCart = async () => {
     if (!product || !user?.uid) {
+      return;
+    }
+
+    const confirmedPrice = getNumericPrice();
+
+    if (
+      !Number.isFinite(confirmedPrice) ||
+      confirmedPrice <= 0
+    ) {
+      setError('Please enter a valid price.');
       return;
     }
 
@@ -169,6 +211,7 @@ function ProductConfirmationPage({
         cartItemRef,
         {
           ...product,
+          price: confirmedPrice,
           quantity: increment(quantity),
           updatedAt: serverTimestamp(),
         },
@@ -179,12 +222,17 @@ function ProductConfirmationPage({
 
       await mobileLog('Product added to cart', {
         barcode: product.barcode,
+        price: confirmedPrice,
         quantity,
       });
 
       onProductAdded();
     } catch (saveError) {
-      setError('The product could not be added to the cart.');
+      setError(
+        'The product could not be added to the cart.'
+      );
+
+      setSavingProduct(false);
 
       await mobileLog(
         'Cart save failed',
@@ -195,8 +243,6 @@ function ProductConfirmationPage({
         },
         'ERROR'
       );
-
-      setSavingProduct(false);
     }
   };
 
@@ -256,8 +302,11 @@ function ProductConfirmationPage({
     );
   }
 
-  const price = Number(product?.price || 0);
-  const subtotal = price * quantity;
+  const numericPrice = getNumericPrice();
+
+  const subtotal = Number.isFinite(numericPrice)
+    ? numericPrice * quantity
+    : 0;
 
   return (
     <div className="p-6">
@@ -300,13 +349,35 @@ function ProductConfirmationPage({
           <p className="text-xs text-gray-400 mt-2">
             Barcode: {product.barcode}
           </p>
+        </div>
 
-          <p className="text-3xl font-bold text-green-700 mt-4">
-            €{price.toFixed(2)}
-          </p>
+        <div className="mt-6">
+          <label
+            htmlFor="product-price"
+            className="block text-sm font-semibold text-gray-700 mb-2 text-center"
+          >
+            Product price
+          </label>
 
-          <p className="text-xs text-amber-600 mt-1">
-            Temporary test price
+          <div className="relative max-w-44 mx-auto">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-xl font-bold">
+              €
+            </span>
+
+            <input
+              id="product-price"
+              type="text"
+              inputMode="decimal"
+              value={price}
+              onChange={handlePriceChange}
+              disabled={savingProduct}
+              placeholder="0.00"
+              className="w-full border border-gray-300 rounded-xl py-3 pl-10 pr-4 text-xl font-bold text-center text-green-700 outline-none focus:border-green-600 disabled:opacity-60"
+            />
+          </div>
+
+          <p className="text-xs text-amber-600 text-center mt-2">
+            Enter the shelf price shown in store
           </p>
         </div>
 
@@ -372,7 +443,10 @@ function ProductConfirmationPage({
         >
           {savingProduct ? (
             <>
-              <Loader2 size={20} className="animate-spin" />
+              <Loader2
+                size={20}
+                className="animate-spin"
+              />
               Adding...
             </>
           ) : (
@@ -387,4 +461,4 @@ function ProductConfirmationPage({
   );
 }
 
-export default ProductConfirmationPage;
+export default ProductConfirmationPage; 
