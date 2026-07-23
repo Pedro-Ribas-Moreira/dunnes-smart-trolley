@@ -1,16 +1,36 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+
 import {
-  signInAnonymously,
-  onAuthStateChanged,
   createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInAnonymously,
   signInWithEmailAndPassword,
-  updateProfile,
   signOut,
+  updateProfile,
 } from 'firebase/auth';
-import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+
+import {
+  collection,
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+} from 'firebase/firestore';
+
+import {
+  Loader2,
+  Lock,
+  LogOut,
+  Mail,
+  ScanLine,
+  ShoppingCart,
+  User,
+} from 'lucide-react';
+
 import { auth, db } from './Firebase';
-import { ScanLine, ShoppingCart, User, Trash2, Loader2, Mail, Lock, LogOut } from 'lucide-react';
+
 import ScanPage from './pages/ScanPage';
+import CartPage from './pages/CartPage';
 
 const appId = 'dunnes-trolley';
 
@@ -38,12 +58,30 @@ function ProfilePage({ user }) {
 
     try {
       if (isSignUp) {
-        const credential = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(credential.user, { displayName: name });
-        await setDoc(doc(db, 'artifacts', appId, 'users', credential.user.uid, 'profile', 'details'), {
-          name: name,
-          email: email,
-          createdAt: new Date().toISOString(),
+        const credential = await createUserWithEmailAndPassword(
+          auth,
+          email,
+          password
+        );
+
+        await updateProfile(credential.user, {
+          displayName: name,
+        });
+
+        const profileRef = doc(
+          db,
+          'artifacts',
+          appId,
+          'users',
+          credential.user.uid,
+          'profile',
+          'details'
+        );
+
+        await setDoc(profileRef, {
+          name,
+          email,
+          createdAt: serverTimestamp(),
         });
       } else {
         await signInWithEmailAndPassword(
@@ -81,16 +119,41 @@ function ProfilePage({ user }) {
   // Display this screen when the user has a registered account.
   if (!isAnonymous) {
     return (
-      <div className='p-6'>
-        <div className='bg-white p-8 rounded-2xl shadow-sm border border-gray-100 text-center'>
-          <User size={48} className='mx-auto text-green-700 mb-4' />
-          <h2 className='text-xl font-bold text-gray-800'>{user.displayName || 'Shopper'}</h2>
-          <p className='text-sm text-gray-500 mb-6'>{user.email}</p>
+      <div className="p-6">
+        <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+          <div className="flex flex-col items-center text-center">
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4">
+              <User
+                size={38}
+                className="text-green-700"
+              />
+            </div>
+
+            <h2 className="text-xl font-bold text-gray-800">
+              {user.displayName || 'Shopper'}
+            </h2>
+
+            <p className="text-gray-500 mt-1">
+              {user.email}
+            </p>
+          </div>
+
+          {error && (
+            <div className="mt-5 bg-red-50 border border-red-200 rounded-xl p-3">
+              <p className="text-red-700 text-sm text-center">
+                {error}
+              </p>
+            </div>
+          )}
+
           <button
-            onClick={() => signOut(auth)}
-            className='w-full bg-red-50 text-red-600 font-bold py-3 rounded-xl flex justify-center items-center gap-2'
+            type="button"
+            onClick={handleLogout}
+            className="w-full mt-6 bg-red-50 text-red-600 font-bold py-3 rounded-xl flex justify-center items-center gap-2"
           >
-            <LogOut size={18} /> Log Out
+            <LogOut size={20} />
+
+            Log Out
           </button>
         </div>
       </div>
@@ -99,46 +162,159 @@ function ProfilePage({ user }) {
 
   // Display this form while the user is anonymous.
   return (
-    <div className='p-6'>
-      <div className='bg-white p-6 rounded-2xl shadow-sm border border-gray-100'>
-        <h2 className='text-xl font-bold text-center mb-6'>{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
-        {error && <p className='text-red-500 text-sm mb-4 bg-red-50 p-2 rounded'>{error}</p>}
-        <form onSubmit={handleAuth} className='space-y-4'>
-          {isSignUp && (
-            <input
-              type='text'
-              placeholder='Full Name'
-              className='w-full p-3 bg-gray-50 border rounded-xl'
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
+    <div className="p-6">
+      <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <User
+              size={30}
+              className="text-green-700"
             />
+          </div>
+
+          <h2 className="text-xl font-bold text-gray-800">
+            {isSignUp
+              ? 'Create Account'
+              : 'Welcome Back'}
+          </h2>
+
+          <p className="text-sm text-gray-500 mt-2">
+            {isSignUp
+              ? 'Save your trolley and shopping information.'
+              : 'Log in to access your saved trolley.'}
+          </p>
+        </div>
+
+        {error && (
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-xl p-3">
+            <p className="text-red-700 text-sm">
+              {error}
+            </p>
+          </div>
+        )}
+
+        <form
+          onSubmit={handleAuth}
+          className="space-y-4"
+        >
+          {isSignUp && (
+            <div>
+              <label
+                htmlFor="name"
+                className="block text-sm font-semibold text-gray-700 mb-1"
+              >
+                Name
+              </label>
+
+              <div className="relative">
+                <User
+                  size={18}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                />
+
+                <input
+                  id="name"
+                  type="text"
+                  value={name}
+                  onChange={(event) =>
+                    setName(event.target.value)
+                  }
+                  placeholder="Your name"
+                  required
+                  className="w-full border border-gray-200 rounded-xl py-3 pl-10 pr-4 outline-none focus:border-green-600"
+                />
+              </div>
+            </div>
           )}
-          <input
-            type='email'
-            placeholder='Email'
-            className='w-full p-3 bg-gray-50 border rounded-xl'
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <input
-            type='password'
-            placeholder='Password'
-            className='w-full p-3 bg-gray-50 border rounded-xl'
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-          <button type='submit' className='w-full bg-green-700 text-white font-bold py-3 rounded-xl' disabled={loading}>
-            {loading ? 'Processing...' : isSignUp ? 'Sign Up' : 'Log In'}
+
+          <div>
+            <label
+              htmlFor="email"
+              className="block text-sm font-semibold text-gray-700 mb-1"
+            >
+              Email
+            </label>
+
+            <div className="relative">
+              <Mail
+                size={18}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
+
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(event) =>
+                  setEmail(event.target.value)
+                }
+                placeholder="name@example.com"
+                required
+                className="w-full border border-gray-200 rounded-xl py-3 pl-10 pr-4 outline-none focus:border-green-600"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="password"
+              className="block text-sm font-semibold text-gray-700 mb-1"
+            >
+              Password
+            </label>
+
+            <div className="relative">
+              <Lock
+                size={18}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
+
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(event) =>
+                  setPassword(event.target.value)
+                }
+                placeholder="Enter your password"
+                required
+                minLength={6}
+                className="w-full border border-gray-200 rounded-xl py-3 pl-10 pr-4 outline-none focus:border-green-600"
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-green-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
+          >
+            {loading && (
+              <Loader2
+                size={20}
+                className="animate-spin"
+              />
+            )}
+
+            {loading
+              ? 'Processing...'
+              : isSignUp
+                ? 'Sign Up'
+                : 'Log In'}
           </button>
         </form>
+
         <button
-          onClick={() => setIsSignUp(!isSignUp)}
-          className='w-full mt-4 text-sm text-green-700 font-semibold underline'
+          type="button"
+          onClick={() => {
+            setIsSignUp((currentValue) => !currentValue);
+            setError('');
+          }}
+          className="w-full mt-4 text-sm text-green-700 font-semibold underline"
         >
-          {isSignUp ? 'Already have an account? Log in' : "Don't have an account? Sign up"}
+          {isSignUp
+            ? 'Already have an account? Log in'
+            : "Don't have an account? Sign up"}
         </button>
       </div>
     </div>
@@ -151,9 +327,21 @@ function ProfilePage({ user }) {
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [loadingAuth, setLoadingAuth] = useState(true);
-  const [activeTab, setActiveTab] = useState('scan');
-  const [cartItems, setCartItems] = useState([]);
+  const [loadingAuth, setLoadingAuth] =
+    useState(true);
+
+  const [activeTab, setActiveTab] =
+    useState('scan');
+
+  const [cartItems, setCartItems] =
+    useState([]);
+
+  const [cartError, setCartError] =
+    useState('');
+
+  // --------------------------------------------------
+  // FIREBASE AUTHENTICATION
+  // --------------------------------------------------
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(
@@ -167,12 +355,17 @@ export default function App() {
 
         try {
           await signInAnonymously(auth);
-        } catch (error) {
-          console.error('Auth error:', error);
+        } catch (authenticationError) {
+          console.error(
+            'Anonymous authentication error:',
+            authenticationError
+          );
+
+          setLoadingAuth(false);
         }
       }
-      setLoadingAuth(false);
-    });
+    );
+
     return () => unsubscribe();
   }, []);
 
@@ -224,56 +417,162 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
-  if (loadingAuth)
+  // --------------------------------------------------
+  // CALCULATE CART TOTAL
+  // --------------------------------------------------
+
+  const cartTotal = cartItems.reduce(
+    (sum, item) => {
+      const price = Number(item.price || 0);
+      const quantity = Number(item.quantity || 1);
+
+      return sum + price * quantity;
+    },
+    0
+  );
+
+  const totalQuantity = cartItems.reduce(
+    (sum, item) => {
+      return sum + Number(item.quantity || 1);
+    },
+    0
+  );
+
+  // --------------------------------------------------
+  // AUTHENTICATION LOADING SCREEN
+  // --------------------------------------------------
+
+  if (loadingAuth) {
     return (
-      <div className='flex h-screen items-center justify-center bg-green-700 text-white'>
-        <Loader2 className='animate-spin' size={48} />
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
+        <Loader2
+          size={40}
+          className="text-green-700 animate-spin"
+        />
+
+        <p className="mt-4 text-gray-600 font-medium">
+          Loading Dunnes Smart Trolley...
+        </p>
       </div>
     );
+  }
 
-  const cartTotal = cartItems.reduce((sum, item) => sum + (item.price || 0), 0).toFixed(2);
+  // --------------------------------------------------
+  // MAIN APPLICATION
+  // --------------------------------------------------
 
   return (
-    <div className='flex justify-center bg-gray-100 min-h-screen font-sans'>
-      <div className='w-full max-w-md bg-white shadow-xl flex flex-col h-screen overflow-hidden relative'>
-        <header className='bg-green-700 text-white p-4 shadow-md z-10 flex justify-between items-center'>
-          <h1 className='text-xl font-bold tracking-wide'>Dunnes Smart Trolley</h1>
-          <div className='bg-green-800 px-3 py-1 rounded-full text-sm font-semibold'>€{cartTotal}</div>
+    <div className="min-h-screen bg-gray-100 flex justify-center">
+      <div className="w-full max-w-md min-h-screen bg-white flex flex-col shadow-xl">
+        {/* Header */}
+        <header className="bg-green-800 text-white px-5 py-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-bold">
+              Dunnes Smart Trolley
+            </h1>
+
+            <p className="text-xs text-green-100 mt-1">
+              {totalQuantity}{' '}
+              {totalQuantity === 1
+                ? 'item'
+                : 'items'}{' '}
+              in your trolley
+            </p>
+          </div>
+
+          <div className="text-right">
+            <p className="text-xs text-green-100">
+              Running total
+            </p>
+
+            <p className="text-xl font-bold">
+              €{cartTotal.toFixed(2)}
+            </p>
+          </div>
         </header>
 
-        <main className='flex-1 overflow-y-auto bg-gray-50 pb-20'>
-          {activeTab === 'scan' && <ScanPage user={user} />}
-          {activeTab === 'cart' && (
-            <div className='p-4 space-y-3'>
-              {cartItems.map((item) => (
-                <div key={item.id} className='bg-white p-4 rounded-xl border border-gray-100 flex justify-between'>
-                  <span className='font-semibold'>{item.name}</span>
-                  <span className='font-bold text-green-700'>€{item.price.toFixed(2)}</span>
-                </div>
-              ))}
+        {/* Main page content */}
+        <main className="flex-1 overflow-y-auto bg-gray-50 pb-24">
+          {cartError && (
+            <div className="m-4 bg-red-50 border border-red-200 rounded-xl p-3">
+              <p className="text-red-700 text-sm text-center">
+                {cartError}
+              </p>
             </div>
           )}
-          {activeTab === 'profile' && <ProfilePage user={user} />}
+
+          {activeTab === 'scan' && (
+            <ScanPage
+              user={user}
+              setActiveTab={setActiveTab}
+            />
+          )}
+
+          {activeTab === 'cart' && (
+            <CartPage cartItems={cartItems} />
+          )}
+
+          {activeTab === 'profile' && (
+            <ProfilePage user={user} />
+          )}
         </main>
 
-        <nav className='absolute bottom-0 w-full bg-white border-t border-gray-200 flex justify-around py-4'>
+        {/* Bottom navigation */}
+        <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-200 px-8 py-3 flex items-center justify-between z-50">
           <button
+            type="button"
             onClick={() => setActiveTab('scan')}
-            className={activeTab === 'scan' ? 'text-green-700' : 'text-gray-400'}
+            className={`flex flex-col items-center gap-1 ${
+              activeTab === 'scan'
+                ? 'text-green-700'
+                : 'text-gray-400'
+            }`}
           >
             <ScanLine size={24} />
+
+            <span className="text-xs font-semibold">
+              Scan
+            </span>
           </button>
+
           <button
+            type="button"
             onClick={() => setActiveTab('cart')}
-            className={activeTab === 'cart' ? 'text-green-700' : 'text-gray-400'}
+            className={`relative flex flex-col items-center gap-1 ${
+              activeTab === 'cart'
+                ? 'text-green-700'
+                : 'text-gray-400'
+            }`}
           >
             <ShoppingCart size={24} />
+
+            {totalQuantity > 0 && (
+              <span className="absolute -top-2 -right-3 min-w-5 h-5 px-1 bg-green-700 text-white text-xs rounded-full flex items-center justify-center">
+                {totalQuantity}
+              </span>
+            )}
+
+            <span className="text-xs font-semibold">
+              Cart
+            </span>
           </button>
+
           <button
-            onClick={() => setActiveTab('profile')}
-            className={activeTab === 'profile' ? 'text-green-700' : 'text-gray-400'}
+            type="button"
+            onClick={() =>
+              setActiveTab('profile')
+            }
+            className={`flex flex-col items-center gap-1 ${
+              activeTab === 'profile'
+                ? 'text-green-700'
+                : 'text-gray-400'
+            }`}
           >
             <User size={24} />
+
+            <span className="text-xs font-semibold">
+              Profile
+            </span>
           </button>
         </nav>
       </div>

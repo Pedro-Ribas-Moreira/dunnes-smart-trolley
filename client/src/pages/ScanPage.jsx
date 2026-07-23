@@ -1,91 +1,410 @@
 import React, { useEffect, useRef, useState } from 'react';
+
+import {
+  doc,
+  increment,
+  serverTimestamp,
+  setDoc,
+} from 'firebase/firestore';
+
 import { Html5Qrcode } from 'html5-qrcode';
-import { collection, doc, setDoc } from 'firebase/firestore';
+import { Loader2 } from 'lucide-react';
+
 import { db } from '../Firebase';
-import { ScanLine } from 'lucide-react';
 
 const appId = 'dunnes-trolley';
-const READER_ID = 'barcode-reader';
 
-const PRODUCTS = {
-  501234567890: { name: "Brennan's Sliced Pan", price: 1.95 },
-  509876543210: { name: 'Avonmore Fresh Milk 2L', price: 2.29 },
-};
+function ScanPage({ user, setActiveTab }) {
+  const [cameraError, setCameraError] = useState('');
+  const [scanError, setScanError] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [scannedProduct, setScannedProduct] = useState(null);
+  const [quantity, setQuantity] = useState(1);
 
-export default function ScanPage({ user }) {
   const scannerRef = useRef(null);
-  const [isScanning, setIsScanning] = useState(false);
-  const [lastScanned, setLastScanned] = useState(null);
+  const isProcessingRef = useRef(false);
 
-  const stopScan = async () => {
-    const scanner = scannerRef.current;
-    if (scanner) {
-      await scanner.stop().catch(() => {});
-      scanner.clear();
-      scannerRef.current = null;
+  const addProductToCart = async () => {
+    if (!scannedProduct || !user) {
+      return;
     }
-    setIsScanning(false);
-  };
 
-  const handleDecoded = async (barcode) => {
-    await stopScan();
-    const product = PRODUCTS[barcode] || { name: `Unknown item (${barcode})`, price: 0 };
-    setLastScanned(product.name);
-    if (user) {
-      await setDoc(doc(collection(db, 'artifacts', appId, 'users', user.uid, 'cart')), {
-        ...product,
-        barcode,
-        addedAt: new Date().toISOString(),
-      });
-    }
-  };
+    setIsProcessing(true);
+    setScanError('');
 
-  const startScan = async () => {
-    setLastScanned(null);
-    const scanner = new Html5Qrcode(READER_ID);
-    scannerRef.current = scanner;
-    setIsScanning(true);
     try {
-      await scanner.start(
-        { facingMode: 'environment' },
-        {
-          fps: 10,
-          qrbox: (viewfinderWidth, viewfinderHeight) => {
-            const width = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.85);
-            const height = Math.floor(width * 0.35);
-            return { width, height };
-          },
-        },
-        handleDecoded,
-        () => {},
+      const cartItemRef = doc(
+        db,
+        'artifacts',
+        appId,
+        'users',
+        user.uid,
+        'cart',
+        scannedProduct.barcode
       );
-    } catch (err) {
-      console.error('Camera start failed:', err);
-      setIsScanning(false);
+
+      await setDoc(
+        cartItemRef,
+        {
+          ...scannedProduct,
+          quantity: increment(quantity),
+          updatedAt: serverTimestamp(),
+        },
+        {
+          merge: true,
+        }
+      );
+
+      setScannedProduct(null);
+      setQuantity(1);
+      setActiveTab('cart');
+    } catch (error) {
+      console.error('Cart error:', error);
+      setScanError('The product could not be added to the cart.');
+      setIsProcessing(false);
     }
   };
 
-  useEffect(
-    () => () => {
-      stopScan();
-    },
-    [],
-  );
+  const closeProductModal = () => {
+    setScannedProduct(null);
+    setQuantity(1);
+    setScanError('');
+    setIsProcessing(false);
+    isProcessingRef.current = false;
+
+    try {
+      if (scannerRef.current?.isPaused()) {
+        scannerRef.current.resume();
+      }
+    } catch (error) {
+      console.error('Scanner resume error:', error);
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const startScanner = async () => {
+      if (!user || scannerRef.current) {
+        return;
+      }
+
+      try {
+        setCameraError('');
+        setScanError('');
+
+        const scanner = new Html5Qrcode('reader');
+        scannerRef.current = scanner;
+
+        await scanner.start(
+          {
+            facingMode: 'environment',
+          },
+          {
+            fps: 10,
+            qrbox: {
+              width: 250,
+              height: 350,
+            },
+          },
+          async (decodedText) => {
+            if (isProcessingRef.current) {
+              return;
+            }
+
+            isProcessingRef.current = true;
+
+            if (isMounted) {
+              setIsProcessing(true);
+              setScanError('');
+            }
+
+            try {
+              scanner.pause(true);
+
+              const response = await fetch(
+                `https://world.openfoodfacts.org/api/v0/product/${encodeURIComponent(
+                  decodedText
+                )}.json`
+              );
+
+              if (!response.ok) {
+                throw new Error(
+                  `Product API returned status ${response.status}`
+                );
+              }
+
+              const data = await response.json();
+
+              if (data.status !== 1 || !data.product) {
+                throw new Error(
+                  'Product not found in Open Food Facts.'
+                );
+              }
+
+              const productName =
+                data.product.product_name?.trim() ||
+                data.product.product_name_en?.trim() ||
+                data.product.generic_name?.trim() ||
+                `Unknown product (${decodedText})`;
+
+              const product = {
+                name: productName,
+                price: 1.5,
+                barcode: decodedText,
+                brand: data.product.brands || '',
+                imageUrl:
+                  data.product.image_front_small_url ||
+                  data.product.image_url ||
+                  '',
+              };
+
+              if (isMounted) {
+                setScannedProduct(product);
+                setQuantity(1);
+                setIsProcessing(false);
+              }
+            } catch (error) {
+              console.error('Product processing error:', error);
+
+              if (isMounted) {
+                setScanError(
+                  error.message ||
+                    'The product could not be scanned.'
+                );
+
+                setIsProcessing(false);
+              }
+
+              isProcessingRef.current = false;
+
+              try {
+                if (scanner.isPaused()) {
+                  scanner.resume();
+                }
+              } catch (resumeError) {
+                console.error(
+                  'Scanner resume error:',
+                  resumeError
+                );
+              }
+            }
+          },
+          () => {}
+        );
+      } catch (error) {
+        console.error('Camera start error:', error);
+
+        if (isMounted) {
+          setCameraError(
+            'The camera could not be started. Please allow camera access and try again.'
+          );
+        }
+      }
+    };
+
+    startScanner();
+
+    return () => {
+      isMounted = false;
+      isProcessingRef.current = false;
+
+      const scanner = scannerRef.current;
+      scannerRef.current = null;
+
+      if (!scanner) {
+        return;
+      }
+
+      const cleanUpScanner = async () => {
+        try {
+          if (scanner.isScanning) {
+            await scanner.stop();
+          }
+        } catch (error) {
+          console.error('Scanner stop error:', error);
+        }
+
+        try {
+          scanner.clear();
+        } catch (error) {
+          console.error('Scanner clear error:', error);
+        }
+      };
+
+      cleanUpScanner();
+    };
+  }, [user]);
 
   return (
-    <div className='flex flex-col items-center justify-center h-full text-gray-500 p-6 space-y-6'>
+    <div className="flex flex-col items-center justify-center h-full p-6 space-y-6">
       <div
-        id={READER_ID}
-        className='w-full aspect-square bg-gray-900 rounded-2xl overflow-hidden relative [&_video]:!absolute [&_video]:!inset-0 [&_video]:!w-full [&_video]:!h-full [&_video]:!object-cover'
-      />
-      {lastScanned && <p className='text-green-700 font-semibold'>Added: {lastScanned}</p>}
-      <button
-        onClick={isScanning ? stopScan : startScan}
-        className='w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg flex justify-center items-center gap-2 transition-all active:scale-95'
+        id="reader"
+        className="w-full aspect-square bg-black rounded-3xl overflow-hidden shadow-inner border-2 border-gray-200 relative"
       >
-        <ScanLine size={24} />
-        {isScanning ? 'Stop Scanning' : 'Start Scanning'}
-      </button>
+        {!isProcessing &&
+          !cameraError &&
+          !scannedProduct && (
+            <div className="absolute w-full h-0.5 bg-green-500 shadow-[0_0_8px_2px_rgba(34,197,94,0.6)] top-1/2 animate-pulse z-10" />
+          )}
+      </div>
+
+      {cameraError && (
+        <div className="w-full rounded-xl bg-red-50 border border-red-200 p-4">
+          <p className="text-red-700 text-sm font-semibold text-center">
+            {cameraError}
+          </p>
+        </div>
+      )}
+
+      {scanError && !scannedProduct && (
+        <div className="w-full rounded-xl bg-amber-50 border border-amber-200 p-4">
+          <p className="text-amber-800 text-sm font-semibold text-center">
+            {scanError}
+          </p>
+        </div>
+      )}
+
+      {isProcessing && !scannedProduct ? (
+        <div className="flex items-center gap-2 text-green-700">
+          <Loader2
+            className="animate-spin"
+            size={24}
+          />
+
+          <p className="font-bold">
+            Looking up product...
+          </p>
+        </div>
+      ) : (
+        !scannedProduct && (
+          <p className="text-gray-500 font-medium text-center">
+            Point your camera at a barcode. It will scan automatically.
+          </p>
+        )
+      )}
+
+      {scannedProduct && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center">
+          <div className="w-full max-w-md bg-white rounded-t-3xl p-6">
+            <div className="w-12 h-1 bg-gray-300 rounded-full mx-auto mb-6" />
+
+            <div className="flex gap-4">
+              {scannedProduct.imageUrl ? (
+                <img
+                  src={scannedProduct.imageUrl}
+                  alt={scannedProduct.name}
+                  className="w-24 h-24 rounded-xl object-contain border border-gray-200"
+                />
+              ) : (
+                <div className="w-24 h-24 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400 text-sm text-center">
+                  No image
+                </div>
+              )}
+
+              <div className="flex-1">
+                {scannedProduct.brand && (
+                  <p className="text-xs text-gray-500">
+                    {scannedProduct.brand}
+                  </p>
+                )}
+
+                <h2 className="text-lg font-bold text-gray-800 mt-1">
+                  {scannedProduct.name}
+                </h2>
+
+                <p className="text-2xl font-bold text-green-700 mt-2">
+                  €{Number(scannedProduct.price).toFixed(2)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <p className="text-sm font-semibold text-gray-700 mb-2">
+                Quantity
+              </p>
+
+              <div className="flex items-center justify-between bg-gray-100 rounded-xl p-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setQuantity((current) =>
+                      Math.max(1, current - 1)
+                    )
+                  }
+                  className="w-12 h-12 bg-white rounded-lg text-2xl font-bold shadow-sm"
+                >
+                  −
+                </button>
+
+                <span className="text-xl font-bold">
+                  {quantity}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setQuantity((current) => current + 1)
+                  }
+                  className="w-12 h-12 bg-white rounded-lg text-2xl font-bold shadow-sm"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center mt-6">
+              <span className="text-gray-600 font-medium">
+                Subtotal
+              </span>
+
+              <span className="text-xl font-bold text-gray-900">
+                €
+                {(
+                  Number(scannedProduct.price) * quantity
+                ).toFixed(2)}
+              </span>
+            </div>
+
+            {scanError && (
+              <p className="text-red-600 text-sm mt-4 text-center">
+                {scanError}
+              </p>
+            )}
+
+            <div className="grid grid-cols-2 gap-3 mt-6">
+              <button
+                type="button"
+                onClick={closeProductModal}
+                disabled={isProcessing}
+                className="py-3 rounded-xl border border-gray-300 font-bold text-gray-700 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={addProductToCart}
+                disabled={isProcessing}
+                className="py-3 rounded-xl bg-green-700 text-white font-bold disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {isProcessing && (
+                  <Loader2
+                    size={18}
+                    className="animate-spin"
+                  />
+                )}
+
+                {isProcessing
+                  ? 'Adding...'
+                  : 'Add to Cart'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+export default ScanPage;
