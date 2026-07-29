@@ -1,5 +1,8 @@
 {
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0"
+  },
+  "dependencies": {
+    "playwright": "^1.61.1"
   }
 }
