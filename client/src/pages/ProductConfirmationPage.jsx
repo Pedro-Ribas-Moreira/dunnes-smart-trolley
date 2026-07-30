@@ -78,6 +78,7 @@ function ProductConfirmationPage({
     if (!barcode) {
       setError('No barcode was provided.');
       setLoadingProduct(false);
+
       return undefined;
     }
 
@@ -95,19 +96,23 @@ function ProductConfirmationPage({
       setNotice('');
       setError('');
 
-      await mobileLog('Starting backend product lookup', {
-        barcode,
-      });
+      await mobileLog(
+        'Starting backend product lookup',
+        {
+          barcode,
+        },
+      );
 
       try {
         timeoutId = setTimeout(() => {
           controller.abort();
         }, 10000);
 
-        const lookupResult = await lookupProduct(
-          barcode,
-          controller.signal,
-        );
+        const lookupResult =
+          await lookupProduct(
+            barcode,
+            controller.signal,
+          );
 
         if (!componentActive) {
           return;
@@ -155,19 +160,22 @@ function ProductConfirmationPage({
             'Product returned by backend',
             {
               barcode,
-              productName: foundProduct.name,
-              source: lookupResult.source,
-              price: foundProduct.price,
+              productName:
+                foundProduct.name,
+              source:
+                lookupResult.source,
+              price:
+                foundProduct.price,
             },
           );
 
           return;
         }
 
-        const manualProduct =
-          createManualProduct(barcode);
+        setProduct(
+          createManualProduct(barcode),
+        );
 
-        setProduct(manualProduct);
         setLookupSource('manual');
 
         setNotice(
@@ -185,14 +193,15 @@ function ProductConfirmationPage({
           return;
         }
 
-        const manualProduct =
-          createManualProduct(barcode);
+        setProduct(
+          createManualProduct(barcode),
+        );
 
-        setProduct(manualProduct);
         setLookupSource('manual');
 
         if (
-          lookupError?.name === 'AbortError'
+          lookupError?.name ===
+          'AbortError'
         ) {
           setNotice(
             'The product lookup took too long. Enter the product details manually.',
@@ -298,6 +307,7 @@ function ProductConfirmationPage({
       setError(
         'The product details are unavailable.',
       );
+
       return;
     }
 
@@ -305,6 +315,7 @@ function ProductConfirmationPage({
       setError(
         'You must be signed in to add a product.',
       );
+
       return;
     }
 
@@ -320,6 +331,7 @@ function ProductConfirmationPage({
       setError(
         'Please enter the product name.',
       );
+
       return;
     }
 
@@ -330,6 +342,7 @@ function ProductConfirmationPage({
       setError(
         'Please enter a valid product price.',
       );
+
       return;
     }
 
@@ -363,11 +376,14 @@ function ProductConfirmationPage({
       await mobileLog(
         'Product saved through backend',
         {
-          barcode: confirmedProduct.barcode,
+          barcode:
+            confirmedProduct.barcode,
           productName:
             confirmedProduct.name,
-          price: confirmedProduct.price,
-          source: confirmedProduct.source,
+          price:
+            confirmedProduct.price,
+          source:
+            confirmedProduct.source,
         },
       );
 
@@ -404,7 +420,8 @@ function ProductConfirmationPage({
         {
           barcode:
             confirmedProduct.barcode,
-          price: confirmedProduct.price,
+          price:
+            confirmedProduct.price,
           quantity,
         },
       );
@@ -511,7 +528,9 @@ function ProductConfirmationPage({
           <div className="flex justify-center">
             <img
               src={product.imageUrl}
-              alt={product.name || 'Product'}
+              alt={
+                product.name || 'Product'
+              }
               className="w-40 h-40 object-contain rounded-2xl border border-gray-100"
             />
           </div>
