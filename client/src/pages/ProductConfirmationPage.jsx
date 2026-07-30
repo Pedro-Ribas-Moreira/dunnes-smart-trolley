@@ -3,7 +3,10 @@ import { doc, increment, serverTimestamp, setDoc } from 'firebase/firestore';
 import { ArrowLeft, Loader2, Minus, PackageSearch, Plus, ShoppingCart } from 'lucide-react';
 import { db } from '../Firebase';
 import { mobileLog } from '../lib/mobileLog';
-import { getOpenFoodFactsProduct, getSavedProduct, saveProduct } from '../services/productService';
+import {
+  lookupProduct,
+  saveProductViaApi,
+} from '../services/productApiService';
 
 const appId = 'dunnes-trolley';
 
@@ -100,7 +103,15 @@ function ProductConfirmationPage({ barcode, user, onCancel, onProductAdded }) {
           controller.abort();
         }, 10000);
 
-        const openFoodFactsProduct = await getOpenFoodFactsProduct(barcode, controller.signal);
+        const lookupResult = await lookupProduct(
+  barcode,
+  controller.signal,
+);
+
+const openFoodFactsProduct =
+  lookupResult.found
+    ? lookupResult.product
+    : null;
 
         if (!active) {
           return;

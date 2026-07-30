@@ -1,8 +1,17 @@
 import express from 'express';
 
 import {
+  authenticateUser,
+} from '../middleware/authenticateUser.js';
+
+import {
   findOpenFoodFactsProduct,
 } from '../services/openFoodFactsService.js';
+
+import {
+  findSavedProduct,
+  saveCatalogueProduct,
+} from '../services/productCatalogueService.js';
 
 const router = express.Router();
 
@@ -16,55 +25,204 @@ function isValidBarcode(barcode) {
   );
 }
 
-router.get('/:barcode', async (request, response) => {
-  const barcode = cleanBarcode(
-    request.params.barcode,
-  );
+function parsePrice(value) {
+  const normalizedValue = String(value)
+    .trim()
+    .replace(',', '.');
 
-  if (!isValidBarcode(barcode)) {
-    return response.status(400).json({
-      success: false,
-      error:
-        'The barcode must contain 8, 12, 13 or 14 digits.',
-    });
+  if (!normalizedValue) {
+    return Number.NaN;
   }
 
-  try {
-    const product =
-      await findOpenFoodFactsProduct(barcode);
+  return Number(normalizedValue);
+}
 
-    if (!product) {
-      return response.json({
-        success: true,
-        found: false,
-        barcode,
-        manualEntryRequired: true,
+function validateProduct(requestBody) {
+  const barcode = cleanBarcode(
+    requestBody.barcode,
+  );
+
+  const name = String(
+    requestBody.name || '',
+  ).trim();
+
+  const brand = String(
+    requestBody.brand || '',
+  ).trim();
+
+  const imageUrl = String(
+    requestBody.imageUrl || '',
+  ).trim();
+
+  const source = String(
+    requestBody.source || 'manual',
+  ).trim();
+
+  const price = parsePrice(
+    requestBody.price,
+  );
+
+  const errors = [];
+
+  if (!isValidBarcode(barcode)) {
+    errors.push(
+      'The barcode must contain 8, 12, 13 or 14 digits.',
+    );
+  }
+
+  if (!name) {
+    errors.push(
+      'The product name is required.',
+    );
+  }
+
+  if (name.length > 200) {
+    errors.push(
+      'The product name is too long.',
+    );
+  }
+
+  if (
+    !Number.isFinite(price) ||
+    price <= 0
+  ) {
+    errors.push(
+      'The product price must be greater than zero.',
+    );
+  }
+
+  if (price > 10000) {
+    errors.push(
+      'The product price is too high.',
+    );
+  }
+
+  return {
+    errors,
+    product: {
+      barcode,
+      name,
+      brand,
+      imageUrl,
+      price,
+      source,
+      originalSource: source,
+    },
+  };
+}
+
+router.get(
+  '/:barcode',
+  async (request, response) => {
+    const barcode = cleanBarcode(
+      request.params.barcode,
+    );
+
+    if (!isValidBarcode(barcode)) {
+      return response.status(400).json({
+        success: false,
+        error:
+          'The barcode must contain 8, 12, 13 or 14 digits.',
       });
     }
 
-    return response.json({
-      success: true,
-      found: true,
-      source: product.source,
-      product,
-      manualEntryRequired: false,
-    });
-  } catch (error) {
-    console.error(
-      'Product lookup failed:',
-      error,
-    );
+    try {
+      const savedProduct =
+        await findSavedProduct(barcode);
 
-    return response.status(502).json({
-      success: false,
-      found: false,
-      barcode,
-      error:
-        error.message ||
-        'The product lookup failed.',
-      manualEntryRequired: true,
-    });
-  }
-});
+      if (savedProduct) {
+        return response.json({
+          success: true,
+          found: true,
+          source: 'firebase',
+          product: savedProduct,
+          manualEntryRequired: false,
+        });
+      }
+
+      const openFoodFactsProduct =
+        await findOpenFoodFactsProduct(
+          barcode,
+        );
+
+      if (!openFoodFactsProduct) {
+        return response.json({
+          success: true,
+          found: false,
+          barcode,
+          source: null,
+          manualEntryRequired: true,
+        });
+      }
+
+      return response.json({
+        success: true,
+        found: true,
+        source: 'open-food-facts',
+        product: openFoodFactsProduct,
+        manualEntryRequired: false,
+      });
+    } catch (error) {
+      console.error(
+        'Product lookup failed:',
+        error,
+      );
+
+      return response.status(502).json({
+        success: false,
+        found: false,
+        barcode,
+        error:
+          error.message ||
+          'The product lookup failed.',
+        manualEntryRequired: true,
+      });
+    }
+  },
+);
+
+router.post(
+  '/',
+  authenticateUser,
+  async (request, response) => {
+    const {
+      errors,
+      product,
+    } = validateProduct(request.body);
+
+    if (errors.length > 0) {
+      return response.status(400).json({
+        success: false,
+        errors,
+      });
+    }
+
+    try {
+      const savedProduct =
+        await saveCatalogueProduct(
+          product,
+          request.user.uid,
+        );
+
+      return response.status(201).json({
+        success: true,
+        message:
+          'The product was saved successfully.',
+        product: savedProduct,
+      });
+    } catch (error) {
+      console.error(
+        'Product save failed:',
+        error,
+      );
+
+      return response.status(500).json({
+        success: false,
+        error:
+          'The product could not be saved.',
+      });
+    }
+  },
+);
 
 export default router;
