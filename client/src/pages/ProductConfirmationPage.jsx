@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -13,11 +14,16 @@ import {
 
 import {
   ArrowLeft,
+  Camera,
+  Check,
+  ImagePlus,
   Loader2,
   Minus,
   PackageSearch,
   Plus,
+  RefreshCw,
   ShoppingCart,
+  X,
 } from 'lucide-react';
 
 import { db } from '../Firebase';
@@ -27,6 +33,10 @@ import {
   lookupProduct,
   saveProductViaApi,
 } from '../services/productApiService';
+
+import {
+  matchProductPhoto,
+} from '../services/productPhotoMatchApiService';
 
 const appId = 'dunnes-trolley';
 
@@ -45,6 +55,7 @@ function parsePrice(value) {
 function createManualProduct(barcode) {
   return {
     barcode,
+    dunnesSku: '',
     name: '',
     brand: '',
     imageUrl: '',
@@ -53,12 +64,29 @@ function createManualProduct(barcode) {
   };
 }
 
+function formatMatchPercentage(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return null;
+  }
+
+  return Math.round(
+    Math.min(
+      Math.max(numericValue, 0),
+      1,
+    ) * 100,
+  );
+}
+
 function ProductConfirmationPage({
   barcode,
   user,
   onCancel,
   onProductAdded,
 }) {
+  const photoInputReference = useRef(null);
+
   const [product, setProduct] = useState(null);
   const [price, setPrice] = useState('');
   const [quantity, setQuantity] = useState(1);
@@ -73,6 +101,27 @@ function ProductConfirmationPage({
 
   const [savingProduct, setSavingProduct] =
     useState(false);
+
+  const [analysingPhoto, setAnalysingPhoto] =
+    useState(false);
+
+  const [photoFile, setPhotoFile] =
+    useState(null);
+
+  const [photoPreviewUrl, setPhotoPreviewUrl] =
+    useState('');
+
+  const [photoLabel, setPhotoLabel] =
+    useState(null);
+
+  const [photoMatches, setPhotoMatches] =
+    useState([]);
+
+  const [photoMatchAttempted, setPhotoMatchAttempted] =
+    useState(false);
+
+  const [catalogueProductsChecked, setCatalogueProductsChecked] =
+    useState(0);
 
   useEffect(() => {
     if (!barcode) {
@@ -95,6 +144,12 @@ function ProductConfirmationPage({
       setLookupSource('');
       setNotice('');
       setError('');
+      setPhotoFile(null);
+      setPhotoPreviewUrl('');
+      setPhotoLabel(null);
+      setPhotoMatches([]);
+      setPhotoMatchAttempted(false);
+      setCatalogueProductsChecked(0);
 
       await mobileLog(
         'Starting backend product lookup',
@@ -179,7 +234,7 @@ function ProductConfirmationPage({
         setLookupSource('manual');
 
         setNotice(
-          'This product was not found. Enter its details and shelf price to save it for future scans.',
+          'This barcode was not found. Take a photo of the front label and we will look for possible Dunnes matches.',
         );
 
         await mobileLog(
@@ -204,11 +259,11 @@ function ProductConfirmationPage({
           'AbortError'
         ) {
           setNotice(
-            'The product lookup took too long. Enter the product details manually.',
+            'The product lookup took too long. You can try identifying the product from a photo or enter its details manually.',
           );
         } else {
           setNotice(
-            'The product service is currently unavailable. Enter the product details manually.',
+            'The product service is currently unavailable. You can try identifying the product from a photo or enter its details manually.',
           );
         }
 
@@ -248,6 +303,16 @@ function ProductConfirmationPage({
       controller.abort();
     };
   }, [barcode]);
+
+  useEffect(() => {
+    return () => {
+      if (photoPreviewUrl) {
+        URL.revokeObjectURL(
+          photoPreviewUrl,
+        );
+      }
+    };
+  }, [photoPreviewUrl]);
 
   const numericPrice = useMemo(() => {
     return parsePrice(price);
@@ -300,6 +365,263 @@ function ProductConfirmationPage({
       (currentQuantity) =>
         currentQuantity + 1,
     );
+  };
+
+  const clearPhotoResults = () => {
+    if (photoPreviewUrl) {
+      URL.revokeObjectURL(
+        photoPreviewUrl,
+      );
+    }
+
+    setPhotoFile(null);
+    setPhotoPreviewUrl('');
+    setPhotoLabel(null);
+    setPhotoMatches([]);
+    setPhotoMatchAttempted(false);
+    setCatalogueProductsChecked(0);
+    setError('');
+
+    if (photoInputReference.current) {
+      photoInputReference.current.value = '';
+    }
+  };
+
+  const openPhotoPicker = () => {
+    setError('');
+
+    photoInputReference.current?.click();
+  };
+
+  const handlePhotoSelected = async (
+    event,
+  ) => {
+    const selectedFile =
+      event.target.files?.[0];
+
+    if (!selectedFile) {
+      return;
+    }
+
+    if (
+      ![
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+      ].includes(selectedFile.type)
+    ) {
+      setError(
+        'Please select a JPEG, PNG or WebP image.',
+      );
+
+      event.target.value = '';
+
+      return;
+    }
+
+    if (
+      selectedFile.size >
+      8 * 1024 * 1024
+    ) {
+      setError(
+        'The photo must be smaller than 8 MB.',
+      );
+
+      event.target.value = '';
+
+      return;
+    }
+
+    if (photoPreviewUrl) {
+      URL.revokeObjectURL(
+        photoPreviewUrl,
+      );
+    }
+
+    const previewUrl =
+      URL.createObjectURL(
+        selectedFile,
+      );
+
+    setPhotoFile(selectedFile);
+    setPhotoPreviewUrl(previewUrl);
+    setPhotoLabel(null);
+    setPhotoMatches([]);
+    setPhotoMatchAttempted(false);
+    setCatalogueProductsChecked(0);
+    setError('');
+    setAnalysingPhoto(true);
+
+    await mobileLog(
+      'Starting product photo analysis',
+      {
+        barcode,
+        fileType: selectedFile.type,
+        fileSize: selectedFile.size,
+      },
+    );
+
+    try {
+      const result =
+        await matchProductPhoto(
+          user,
+          selectedFile,
+        );
+
+      setPhotoLabel(result.label);
+      setPhotoMatches(result.matches);
+      setPhotoMatchAttempted(true);
+
+      setCatalogueProductsChecked(
+        result.catalogueProductsChecked,
+      );
+
+      if (result.matches.length > 0) {
+        setNotice(
+          'We found possible Dunnes products. Select the correct match, or continue with manual entry.',
+        );
+      } else {
+        setNotice(
+          'We could not find a confident Dunnes match. Try another photo or enter the product details manually.',
+        );
+      }
+
+      await mobileLog(
+        'Product photo analysis completed',
+        {
+          barcode,
+          extractedBrand:
+            result.label?.brand || '',
+          extractedProductName:
+            result.label?.productName ||
+            '',
+          matches:
+            result.matches.length,
+          catalogueProductsChecked:
+            result.catalogueProductsChecked,
+        },
+      );
+    } catch (photoError) {
+      setPhotoMatchAttempted(true);
+
+      setError(
+        photoError?.message ||
+          'The product photo could not be analysed.',
+      );
+
+      await mobileLog(
+        'Product photo analysis failed',
+        {
+          barcode,
+          name:
+            photoError?.name ||
+            'Unknown error',
+          message:
+            photoError?.message ||
+            String(photoError),
+        },
+        'ERROR',
+      );
+    } finally {
+      setAnalysingPhoto(false);
+    }
+  };
+
+  const selectPhotoMatch = (
+    match,
+  ) => {
+    const matchedPrice = Number(
+      match.price,
+    );
+
+    setProduct({
+      barcode,
+      dunnesSku:
+        match.dunnesSku || '',
+      name:
+        match.name || '',
+      brand:
+        match.brand || '',
+      imageUrl:
+        match.imageUrl || '',
+      price:
+        Number.isFinite(
+          matchedPrice,
+        )
+          ? matchedPrice
+          : null,
+      promotions:
+        Array.isArray(
+          match.promotions,
+        )
+          ? match.promotions
+          : [],
+      source:
+        'dunnes-photo-match',
+      originalSource:
+        'dunnes-storefront',
+    });
+
+    setPrice(
+      Number.isFinite(matchedPrice) &&
+        matchedPrice > 0
+        ? matchedPrice.toFixed(2)
+        : '',
+    );
+
+    setLookupSource(
+      'dunnes-photo-match',
+    );
+
+    setNotice(
+      'Dunnes product selected. Confirm that the product and shelf price are correct before adding it.',
+    );
+
+    setError('');
+  };
+
+  const returnToManualEntry = () => {
+    const extractedName = [
+      photoLabel?.productName,
+      photoLabel?.variant,
+      photoLabel?.sizeText,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    setProduct({
+      ...createManualProduct(
+        barcode,
+      ),
+      name: extractedName,
+      brand:
+        photoLabel?.brand || '',
+    });
+
+    setPrice('');
+    setLookupSource('manual');
+
+    setNotice(
+      'Enter or correct the product details and shelf price manually.',
+    );
+
+    setError('');
+  };
+
+  const changeSelectedMatch = () => {
+    setProduct(
+      createManualProduct(barcode),
+    );
+
+    setPrice('');
+    setLookupSource('manual');
+
+    setNotice(
+      'Select another suggested product, take a new photo or enter the details manually.',
+    );
+
+    setError('');
   };
 
   const addProductToCart = async () => {
@@ -355,9 +677,12 @@ function ProductConfirmationPage({
 
     const confirmedProduct = {
       barcode: product.barcode,
+      dunnesSku:
+        product.dunnesSku || '',
       name: productName,
       brand: productBrand,
-      imageUrl: product.imageUrl || '',
+      imageUrl:
+        product.imageUrl || '',
       price: numericPrice,
       source: originalSource,
       originalSource,
@@ -378,6 +703,8 @@ function ProductConfirmationPage({
         {
           barcode:
             confirmedProduct.barcode,
+          dunnesSku:
+            confirmedProduct.dunnesSku,
           productName:
             confirmedProduct.name,
           price:
@@ -407,6 +734,10 @@ function ProductConfirmationPage({
           originalSource:
             savedProduct?.originalSource ||
             confirmedProduct.originalSource,
+          dunnesSku:
+            savedProduct?.dunnesSku ||
+            confirmedProduct.dunnesSku ||
+            '',
           quantity: increment(quantity),
           updatedAt: serverTimestamp(),
         },
@@ -420,6 +751,8 @@ function ProductConfirmationPage({
         {
           barcode:
             confirmedProduct.barcode,
+          dunnesSku:
+            confirmedProduct.dunnesSku,
           price:
             confirmedProduct.price,
           quantity,
@@ -498,10 +831,22 @@ function ProductConfirmationPage({
 
   return (
     <div className="p-6">
+      <input
+        ref={photoInputReference}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        capture="environment"
+        onChange={handlePhotoSelected}
+        className="hidden"
+      />
+
       <button
         type="button"
         onClick={onCancel}
-        disabled={savingProduct}
+        disabled={
+          savingProduct ||
+          analysingPhoto
+        }
         className="flex items-center gap-2 text-gray-600 font-semibold disabled:opacity-50"
       >
         <ArrowLeft size={20} />
@@ -520,6 +865,264 @@ function ProductConfirmationPage({
               <p className="text-sm text-blue-800">
                 {notice}
               </p>
+            </div>
+          </div>
+        )}
+
+        {manualEntry && (
+          <div className="mb-7">
+            <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-11 h-11 rounded-xl bg-white flex items-center justify-center shrink-0">
+                  <Camera
+                    size={23}
+                    className="text-green-700"
+                  />
+                </div>
+
+                <div>
+                  <h2 className="font-bold text-gray-800">
+                    Identify from a photo
+                  </h2>
+
+                  <p className="text-sm text-gray-600 mt-1">
+                    Take a clear photo of the front label. We will read the visible details and search the Dunnes catalogue.
+                  </p>
+                </div>
+              </div>
+
+              {!photoPreviewUrl && (
+                <button
+                  type="button"
+                  onClick={openPhotoPicker}
+                  disabled={
+                    analysingPhoto ||
+                    savingProduct
+                  }
+                  className="w-full mt-4 bg-green-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  <Camera size={20} />
+                  Take Product Photo
+                </button>
+              )}
+
+              {photoPreviewUrl && (
+                <div className="mt-4">
+                  <div className="relative">
+                    <img
+                      src={photoPreviewUrl}
+                      alt="Selected product"
+                      className="w-full max-h-72 object-contain rounded-2xl border border-green-200 bg-white"
+                    />
+
+                    {!analysingPhoto && (
+                      <button
+                        type="button"
+                        onClick={clearPhotoResults}
+                        aria-label="Remove selected photo"
+                        className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm"
+                      >
+                        <X size={20} />
+                      </button>
+                    )}
+                  </div>
+
+                  {analysingPhoto ? (
+                    <div className="mt-4 flex flex-col items-center py-4">
+                      <Loader2
+                        size={32}
+                        className="animate-spin text-green-700"
+                      />
+
+                      <p className="font-semibold text-gray-700 mt-3">
+                        Analysing product...
+                      </p>
+
+                      <p className="text-sm text-gray-500 mt-1 text-center">
+                        Reading the label and searching the Dunnes catalogue
+                      </p>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={openPhotoPicker}
+                      disabled={savingProduct}
+                      className="w-full mt-4 border border-green-700 text-green-700 font-bold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
+                    >
+                      <RefreshCw size={18} />
+                      Take Another Photo
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {photoLabel && (
+                <div className="mt-4 rounded-xl bg-white border border-green-200 p-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-green-700">
+                    Label detected
+                  </p>
+
+                  <p className="font-semibold text-gray-800 mt-2">
+                    {[
+                      photoLabel.brand,
+                      photoLabel.productName,
+                      photoLabel.variant,
+                      photoLabel.sizeText,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') ||
+                      'Product details detected'}
+                  </p>
+
+                  {catalogueProductsChecked >
+                    0 && (
+                    <p className="text-xs text-gray-400 mt-2">
+                      Compared with{' '}
+                      {catalogueProductsChecked}{' '}
+                      Dunnes products
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {photoMatches.length > 0 && (
+              <div className="mt-5">
+                <h2 className="text-lg font-bold text-gray-800">
+                  Possible matches
+                </h2>
+
+                <p className="text-sm text-gray-500 mt-1">
+                  Select the product only if the name, size and packaging match.
+                </p>
+
+                <div className="mt-4 space-y-3">
+                  {photoMatches.map(
+                    (match) => {
+                      const percentage =
+                        formatMatchPercentage(
+                          match.matchScore,
+                        );
+
+                      return (
+                        <button
+                          key={
+                            match.dunnesSku
+                          }
+                          type="button"
+                          onClick={() =>
+                            selectPhotoMatch(
+                              match,
+                            )
+                          }
+                          disabled={
+                            savingProduct
+                          }
+                          className="w-full border border-gray-200 rounded-2xl p-4 text-left bg-white hover:border-green-600 disabled:opacity-60"
+                        >
+                          <div className="flex gap-4">
+                            {match.imageUrl ? (
+                              <img
+                                src={
+                                  match.imageUrl
+                                }
+                                alt={
+                                  match.name
+                                }
+                                className="w-20 h-20 rounded-xl object-contain bg-gray-50 shrink-0"
+                              />
+                            ) : (
+                              <div className="w-20 h-20 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                                <ImagePlus
+                                  size={27}
+                                  className="text-gray-400"
+                                />
+                              </div>
+                            )}
+
+                            <div className="flex-1 min-w-0">
+                              {match.brand && (
+                                <p className="text-sm text-gray-500">
+                                  {match.brand}
+                                </p>
+                              )}
+
+                              <h3 className="font-bold text-gray-800 mt-1">
+                                {match.name}
+                              </h3>
+
+                              <div className="flex items-center justify-between gap-3 mt-3">
+                                <span className="font-bold text-green-700">
+                                  {Number.isFinite(
+                                    Number(
+                                      match.price,
+                                    ),
+                                  )
+                                    ? `€${Number(
+                                        match.price,
+                                      ).toFixed(
+                                        2,
+                                      )}`
+                                    : 'Price unavailable'}
+                                </span>
+
+                                {percentage !==
+                                  null && (
+                                  <span className="text-xs font-semibold bg-green-100 text-green-700 rounded-full px-3 py-1">
+                                    {percentage}% match
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="text-xs text-gray-400 mt-2">
+                                Dunnes SKU:{' '}
+                                {match.dunnesSku}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 flex items-center justify-center gap-2 bg-green-700 text-white font-bold py-2.5 rounded-xl">
+                            <Check size={18} />
+                            This is my product
+                          </div>
+                        </button>
+                      );
+                    },
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={returnToManualEntry}
+                  className="w-full mt-4 border border-gray-300 text-gray-700 font-semibold py-3 rounded-xl"
+                >
+                  None of these, enter manually
+                </button>
+              </div>
+            )}
+
+            {photoMatchAttempted &&
+              !analysingPhoto &&
+              photoMatches.length === 0 && (
+                <div className="mt-5 rounded-xl bg-amber-50 border border-amber-200 p-4">
+                  <p className="font-semibold text-amber-800">
+                    No close match found
+                  </p>
+
+                  <p className="text-sm text-amber-700 mt-1">
+                    Try a clearer front-facing photo, or continue with manual entry below.
+                  </p>
+                </div>
+              )}
+
+            <div className="flex items-center gap-3 mt-7">
+              <div className="h-px bg-gray-200 flex-1" />
+
+              <span className="text-xs font-semibold text-gray-400 uppercase">
+                Manual entry
+              </span>
+
+              <div className="h-px bg-gray-200 flex-1" />
             </div>
           </div>
         )}
@@ -615,6 +1218,27 @@ function ProductConfirmationPage({
             <p className="text-xs text-gray-400 mt-2">
               Barcode: {product.barcode}
             </p>
+
+            {product.dunnesSku && (
+              <p className="text-xs text-gray-400 mt-1">
+                Dunnes SKU:{' '}
+                {product.dunnesSku}
+              </p>
+            )}
+
+            {lookupSource ===
+              'dunnes-photo-match' && (
+              <button
+                type="button"
+                onClick={
+                  changeSelectedMatch
+                }
+                disabled={savingProduct}
+                className="mt-4 text-sm font-semibold text-green-700 underline disabled:opacity-50"
+              >
+                This is not the correct product
+              </button>
+            )}
           </div>
         )}
 
@@ -702,7 +1326,10 @@ function ProductConfirmationPage({
         <button
           type="button"
           onClick={addProductToCart}
-          disabled={savingProduct}
+          disabled={
+            savingProduct ||
+            analysingPhoto
+          }
           className="w-full mt-6 bg-green-700 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
         >
           {savingProduct ? (

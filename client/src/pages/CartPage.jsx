@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 
 import DunnesImportPanel from '../components/DunnesImportPanel';
+import DunnesCrawlerPanel from '../components/DunnesCrawlerPanel';
 
 import {
   finishShoppingSession,
@@ -259,7 +260,8 @@ export default function CartPage({
       <DunnesImportPanel
       user={user}
     />
-    
+      <DunnesCrawlerPanel user={user} />
+
       <div className="mt-4 space-y-3">
         {shoppingSessions.map(
           (session) => {
