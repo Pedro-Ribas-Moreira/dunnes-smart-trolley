@@ -4,6 +4,10 @@ import { searchLiveDunnesProducts } from './dunnesLiveSearchService.js';
 import { rankDunnesCandidates } from './productMatchingAgentService.js';
 import { searchDunnesProduceWebsite } from './produceWebsiteSearchAgentService.js';
 
+const WEBSITE_SEARCH_TIMEOUT_MS = Number(
+  process.env.PRODUCE_WEBSITE_SEARCH_TIMEOUT_MS || 12000,
+);
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -126,6 +130,66 @@ function createSearchProduct(recognition) {
   };
 }
 
+function mergeCandidates(...candidateGroups) {
+  const candidatesBySku = new Map();
+
+  candidateGroups.flat().forEach((candidate) => {
+    const sku = String(candidate?.dunnesSku || '').trim();
+
+    if (!sku) {
+      return;
+    }
+
+    candidatesBySku.set(sku, {
+      ...candidatesBySku.get(sku),
+      ...candidate,
+    });
+  });
+
+  return [...candidatesBySku.values()];
+}
+
+async function searchForProduce(externalProduct, recognition) {
+  const websiteSearchController = new AbortController();
+  const timeoutId = setTimeout(
+    () => websiteSearchController.abort(),
+    WEBSITE_SEARCH_TIMEOUT_MS,
+  );
+
+  try {
+    const [catalogueResult, websiteResult] = await Promise.allSettled([
+      searchLiveDunnesProducts(externalProduct),
+      searchDunnesProduceWebsite(recognition, undefined, {
+        signal: websiteSearchController.signal,
+      }),
+    ]);
+
+    const catalogueCandidates =
+      catalogueResult.status === 'fulfilled' ? catalogueResult.value : [];
+
+    const websiteCandidates =
+      websiteResult.status === 'fulfilled' ? websiteResult.value : [];
+
+    if (catalogueResult.status === 'rejected') {
+      console.warn('Normal Dunnes produce search failed:', {
+        itemName: recognition.itemName,
+        message: catalogueResult.reason?.message,
+      });
+    }
+
+    if (websiteResult.status === 'rejected' && !websiteSearchController.signal.aborted) {
+      console.warn('Produce website search failed:', {
+        itemName: recognition.itemName,
+        message: websiteResult.reason?.message,
+      });
+    }
+
+    return mergeCandidates(catalogueCandidates, websiteCandidates);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function identifyLooseProduce({ imageBuffer, mimeType }) {
   const recognition = await recogniseProduce(imageBuffer, mimeType);
 
@@ -137,11 +201,7 @@ export async function identifyLooseProduce({ imageBuffer, mimeType }) {
   }
 
   const externalProduct = createSearchProduct(recognition);
-  let candidates = await searchLiveDunnesProducts(externalProduct);
-
-  if (candidates.length === 0) {
-    candidates = await searchDunnesProduceWebsite(recognition);
-  }
+  const candidates = await searchForProduce(externalProduct, recognition);
 
   if (candidates.length === 0) {
     return {

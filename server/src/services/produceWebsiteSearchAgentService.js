@@ -98,7 +98,7 @@ function normaliseAgentMatches(value) {
   return [...matchesBySku.values()].slice(0, MAX_RESULTS);
 }
 
-async function findProductPages(recognition) {
+async function findProductPages(recognition, signal) {
   if (!openai) {
     console.warn('Produce website search skipped because OPENAI_API_KEY is not configured.');
     return [];
@@ -129,7 +129,7 @@ async function findProductPages(recognition) {
       },
     },
     input: createSearchPrompt(recognition),
-  });
+  }, { signal });
 
   if (!response.output_text) {
     return [];
@@ -169,9 +169,10 @@ async function verifyMatch(match, storeId) {
 export async function searchDunnesProduceWebsite(
   recognition,
   storeId = DEFAULT_STORE_ID,
+  { signal } = {},
 ) {
   try {
-    const agentMatches = await findProductPages(recognition);
+    const agentMatches = await findProductPages(recognition, signal);
     const verifiedMatches = (
       await Promise.all(agentMatches.map((match) => verifyMatch(match, storeId)))
     ).filter(Boolean);
@@ -189,6 +190,13 @@ export async function searchDunnesProduceWebsite(
 
     return verifiedMatches;
   } catch (error) {
+    if (signal?.aborted) {
+      console.warn('Produce website search agent timed out:', {
+        itemName: recognition.itemName,
+      });
+      return [];
+    }
+
     console.error('Produce website search agent failed:', {
       itemName: recognition.itemName,
       message: error.message,
