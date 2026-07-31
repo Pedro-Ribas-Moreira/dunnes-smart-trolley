@@ -6,6 +6,10 @@ import {
   adminDb,
 } from '../config/firebaseAdmin.js';
 
+import {
+  calculateCartPricing,
+} from './promotionPricingService.js';
+
 const appId = 'dunnes-trolley';
 
 function normaliseCartItem(cartDocument) {
@@ -27,6 +31,10 @@ function normaliseCartItem(cartDocument) {
     imageUrl: String(data.imageUrl || ''),
     price,
     quantity,
+    dunnesSku: String(data.dunnesSku || ''),
+    promotions: Array.isArray(data.promotions)
+      ? data.promotions
+      : [],
     subtotal: Number(
       (price * quantity).toFixed(2),
     ),
@@ -109,24 +117,31 @@ export async function finishShoppingSession(
         0,
       );
 
-      const total = Number(
-        items
-          .reduce(
-            (sum, item) =>
-              sum + item.subtotal,
-            0,
-          )
-          .toFixed(2),
-      );
+      const pricing =
+        calculateCartPricing(items);
+
+      const pricedItems =
+        pricing.itemResults.map((item) => ({
+          ...item,
+          subtotal: item.finalSubtotal,
+        }));
+
+      const total = pricing.finalTotal;
 
       const sessionRef =
         sessionsRef.doc();
 
       const session = {
         status: 'completed',
-        items,
-        uniqueItemCount: items.length,
+        items: pricedItems,
+        uniqueItemCount: pricedItems.length,
         itemCount,
+        regularSubtotal:
+          pricing.regularSubtotal,
+        promotionDiscount:
+          pricing.promotionDiscount,
+        appliedPromotions:
+          pricing.appliedPromotions,
         total,
         createdAt:
           FieldValue.serverTimestamp(),
@@ -150,9 +165,15 @@ export async function finishShoppingSession(
       return {
         id: sessionRef.id,
         status: 'completed',
-        items,
-        uniqueItemCount: items.length,
+        items: pricedItems,
+        uniqueItemCount: pricedItems.length,
         itemCount,
+        regularSubtotal:
+          pricing.regularSubtotal,
+        promotionDiscount:
+          pricing.promotionDiscount,
+        appliedPromotions:
+          pricing.appliedPromotions,
         total,
         createdAt:
           new Date().toISOString(),

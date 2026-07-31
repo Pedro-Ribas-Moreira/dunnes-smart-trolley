@@ -23,6 +23,8 @@ function serialiseCatalogueProduct(documentSnapshot) {
     imageUrl: String(data.imageUrl || ''),
     available: data.available !== false,
     promotions: Array.isArray(data.promotions) ? data.promotions : [],
+    hasPromotion: Boolean(data.hasPromotion),
+    priceSource: String(data.priceSource || ''),
   };
 }
 
@@ -75,6 +77,10 @@ export function formatDunnesCandidates(catalogueProducts) {
     defaultCategory: product.defaultCategory,
     unitPrice: product.unitPrice,
     price: product.price,
+    imageUrl: product.imageUrl,
+    promotions: product.promotions,
+    hasPromotion: product.hasPromotion,
+    priceSource: product.priceSource,
     score: product.matchScore,
   }));
 }

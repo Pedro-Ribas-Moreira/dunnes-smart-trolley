@@ -23,6 +23,10 @@ import {
   loadShoppingSessions,
 } from '../services/shoppingSessionApiService';
 
+import {
+  calculateCartPricing,
+} from '../lib/promotionPricing';
+
 const isDev = import.meta.env.DEV;
 function formatSessionDate(value) {
   if (!value) {
@@ -75,25 +79,13 @@ export default function CartPage({
   const [expandedSessionId, setExpandedSessionId] =
     useState(null);
 
-  const cartTotal = useMemo(() => {
-    return cartItems.reduce(
-      (sum, item) => {
-        const price = Number(
-          item.price || 0
-        );
+  const cartPricing = useMemo(
+    () => calculateCartPricing(cartItems),
+    [cartItems]
+  );
 
-        const quantity = Number(
-          item.quantity || 1
-        );
-
-        return (
-          sum +
-          price * quantity
-        );
-      },
-      0
-    );
-  }, [cartItems]);
+  const cartTotal =
+    cartPricing.finalTotal;
 
   const totalQuantity = useMemo(() => {
     return cartItems.reduce(
@@ -586,7 +578,7 @@ export default function CartPage({
         )}
 
         <div className="mt-4 space-y-3">
-          {cartItems.map((item) => {
+          {cartPricing.itemResults.map((item) => {
             const price = Number(
               item.price || 0
             );
@@ -596,7 +588,7 @@ export default function CartPage({
             );
 
             const subtotal =
-              price * quantity;
+              item.finalSubtotal;
 
             return (
               <div
@@ -639,13 +631,26 @@ export default function CartPage({
                         {quantity}
                       </p>
 
-                      <p className="font-bold text-green-700">
-                        €
-                        {subtotal.toFixed(
-                          2
+                      <div className="text-right">
+                        {item.discount > 0 && (
+                          <p className="text-xs text-gray-400 line-through">
+                            €{item.regularSubtotal.toFixed(2)}
+                          </p>
                         )}
-                      </p>
+
+                        <p className="font-bold text-green-700">
+                          €{subtotal.toFixed(2)}
+                        </p>
+                      </div>
                     </div>
+
+                    {item.appliedPromotions.length > 0 && (
+                      <div className="mt-3 rounded-xl bg-green-50 px-3 py-2 text-xs font-semibold text-green-700">
+                        {item.appliedPromotions
+                          .map((promotion) => promotion.name)
+                          .join(', ')}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -665,13 +670,34 @@ export default function CartPage({
           </div>
 
           <div className="flex justify-between mt-3">
+            <span className="text-gray-600">
+              Regular subtotal
+            </span>
+
+            <span className="font-semibold text-gray-800">
+              €{cartPricing.regularSubtotal.toFixed(2)}
+            </span>
+          </div>
+
+          {cartPricing.promotionDiscount > 0 && (
+            <div className="flex justify-between mt-3 text-green-700">
+              <span className="font-semibold">
+                Promotion savings
+              </span>
+
+              <span className="font-bold">
+                -€{cartPricing.promotionDiscount.toFixed(2)}
+              </span>
+            </div>
+          )}
+
+          <div className="flex justify-between mt-3 border-t border-gray-100 pt-3">
             <span className="font-semibold text-gray-800">
               Total
             </span>
 
             <span className="text-xl font-bold text-green-700">
-              €
-              {cartTotal.toFixed(2)}
+              €{cartTotal.toFixed(2)}
             </span>
           </div>
 

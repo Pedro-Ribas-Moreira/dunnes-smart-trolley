@@ -1,0 +1,1231 @@
+diff --git a/client/src/App.jsx b/client/src/App.jsx
+index c918921..97b1075 100644
+--- a/client/src/App.jsx
++++ b/client/src/App.jsx
+@@ -34,6 +34,10 @@ import {
+   logoutUser,
+ } from './services/authService';
+ 
++import {
++  calculateCartPricing,
++} from './lib/promotionPricing';
++
+ const appId = 'dunnes-trolley';
+ 
+ export default function App() {
+@@ -213,24 +217,13 @@ export default function App() {
+     setActiveTab('profile');
+   };
+ 
+-  const cartTotal = useMemo(() => {
+-    return cartItems.reduce(
+-      (sum, item) => {
+-        const price = Number(
+-          item.price || 0,
+-        );
+-
+-        const quantity = Number(
+-          item.quantity || 1,
+-        );
++  const cartPricing = useMemo(
++    () => calculateCartPricing(cartItems),
++    [cartItems],
++  );
+ 
+-        return (
+-          sum + price * quantity
+-        );
+-      },
+-      0,
+-    );
+-  }, [cartItems]);
++  const cartTotal =
++    cartPricing.finalTotal;
+ 
+   const totalQuantity =
+     useMemo(() => {
+diff --git a/updated/client/src/lib/promotionPricing.js b/client/src/lib/promotionPricing.js
+new file mode 100644
+index 0000000..47eff6c
+--- /dev/null
++++ b/client/src/lib/promotionPricing.js
+@@ -0,0 +1,396 @@
++function roundMoney(value) {
++  return Number(Number(value || 0).toFixed(2));
++}
++
++function parsePromotionDate(value) {
++  if (!value) {
++    return null;
++  }
++
++  const directDate = new Date(value);
++
++  if (!Number.isNaN(directDate.getTime())) {
++    return directDate;
++  }
++
++  const match = String(value).match(
++    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
++  );
++
++  if (!match) {
++    return null;
++  }
++
++  const [, day, month, year] = match;
++
++  return new Date(
++    Number(year),
++    Number(month) - 1,
++    Number(day),
++    23,
++    59,
++    59,
++    999,
++  );
++}
++
++function isPromotionActive(
++  promotion,
++  now = new Date(),
++) {
++  if (!promotion) {
++    return false;
++  }
++
++  if (
++    promotion.loyaltyBased ||
++    promotion.pointsBased
++  ) {
++    return false;
++  }
++
++  const startDate = parsePromotionDate(
++    promotion.startDateUtc ||
++      promotion.startDate,
++  );
++
++  const endDate = parsePromotionDate(
++    promotion.endDateUtc ||
++      promotion.endDate,
++  );
++
++  if (startDate && now < startDate) {
++    return false;
++  }
++
++  if (endDate && now > endDate) {
++    return false;
++  }
++
++  return true;
++}
++
++function parseBulkOffer(promotion) {
++  const text = [
++    promotion?.name,
++    promotion?.description,
++  ]
++    .filter(Boolean)
++    .join(' ');
++
++  const match = text.match(
++    /buy\s+(\d+)\s+for\s+[€£]?\s*(\d+(?:[.,]\d{1,2})?)/i,
++  );
++
++  if (!match) {
++    return null;
++  }
++
++  const minimumQuantity = Number(
++    promotion.minimumQuantity || match[1],
++  );
++
++  const bundlePrice = Number(
++    match[2].replace(',', '.'),
++  );
++
++  if (
++    !Number.isFinite(minimumQuantity) ||
++    minimumQuantity < 2 ||
++    !Number.isFinite(bundlePrice) ||
++    bundlePrice <= 0
++  ) {
++    return null;
++  }
++
++  return {
++    minimumQuantity,
++    bundlePrice,
++  };
++}
++
++function getPromotionKey(promotion) {
++  const id = String(
++    promotion?.id || '',
++  ).trim();
++
++  if (id) {
++    return id;
++  }
++
++  return [
++    promotion?.name,
++    promotion?.startDateUtc ||
++      promotion?.startDate,
++    promotion?.endDateUtc ||
++      promotion?.endDate,
++  ]
++    .filter(Boolean)
++    .join('|');
++}
++
++function getEligibleBulkPromotion(item) {
++  const promotions = Array.isArray(
++    item?.promotions,
++  )
++    ? item.promotions
++    : [];
++
++  for (const promotion of promotions) {
++    if (!isPromotionActive(promotion)) {
++      continue;
++    }
++
++    const parsedOffer =
++      parseBulkOffer(promotion);
++
++    if (!parsedOffer) {
++      continue;
++    }
++
++    const key = getPromotionKey(promotion);
++
++    if (!key) {
++      continue;
++    }
++
++    return {
++      ...promotion,
++      ...parsedOffer,
++      key,
++    };
++  }
++
++  return null;
++}
++
++export function calculateCartPricing(cartItems) {
++  const itemResults = (cartItems || []).map(
++    (item) => {
++      const price = Number(item.price || 0);
++      const quantity = Math.max(
++        1,
++        Number(item.quantity || 1),
++      );
++
++      return {
++        ...item,
++        price,
++        quantity,
++        regularSubtotal: roundMoney(
++          price * quantity,
++        ),
++        finalSubtotal: roundMoney(
++          price * quantity,
++        ),
++        discount: 0,
++        appliedPromotions: [],
++      };
++    },
++  );
++
++  const promotionGroups = new Map();
++
++  itemResults.forEach((item, index) => {
++    const promotion =
++      getEligibleBulkPromotion(item);
++
++    if (!promotion) {
++      return;
++    }
++
++    const currentGroup =
++      promotionGroups.get(promotion.key) || {
++        promotion,
++        itemIndexes: [],
++      };
++
++    currentGroup.itemIndexes.push(index);
++    promotionGroups.set(
++      promotion.key,
++      currentGroup,
++    );
++  });
++
++  const appliedPromotions = [];
++
++  promotionGroups.forEach(
++    ({ promotion, itemIndexes }) => {
++      const units = [];
++
++      itemIndexes.forEach((itemIndex) => {
++        const item = itemResults[itemIndex];
++
++        for (
++          let unitIndex = 0;
++          unitIndex < item.quantity;
++          unitIndex += 1
++        ) {
++          units.push({
++            itemIndex,
++            unitPrice: item.price,
++          });
++        }
++      });
++
++      units.sort(
++        (first, second) =>
++          second.unitPrice - first.unitPrice,
++      );
++
++      const groupCount = Math.floor(
++        units.length /
++          promotion.minimumQuantity,
++      );
++
++      if (groupCount < 1) {
++        return;
++      }
++
++      let totalDiscount = 0;
++      const discountedByItem = new Map();
++
++      for (
++        let groupIndex = 0;
++        groupIndex < groupCount;
++        groupIndex += 1
++      ) {
++        const start =
++          groupIndex *
++          promotion.minimumQuantity;
++
++        const groupUnits = units.slice(
++          start,
++          start + promotion.minimumQuantity,
++        );
++
++        const regularGroupTotal =
++          groupUnits.reduce(
++            (sum, unit) =>
++              sum + unit.unitPrice,
++            0,
++          );
++
++        const groupDiscount = Math.max(
++          0,
++          roundMoney(
++            regularGroupTotal -
++              promotion.bundlePrice,
++          ),
++        );
++
++        if (groupDiscount <= 0) {
++          continue;
++        }
++
++        totalDiscount = roundMoney(
++          totalDiscount + groupDiscount,
++        );
++
++        const regularDenominator =
++          regularGroupTotal || 1;
++
++        let allocatedDiscount = 0;
++
++        groupUnits.forEach(
++          (unit, unitIndex) => {
++            const isLastUnit =
++              unitIndex ===
++              groupUnits.length - 1;
++
++            const unitDiscount = isLastUnit
++              ? roundMoney(
++                  groupDiscount -
++                    allocatedDiscount,
++                )
++              : roundMoney(
++                  groupDiscount *
++                    (unit.unitPrice /
++                      regularDenominator),
++                );
++
++            allocatedDiscount = roundMoney(
++              allocatedDiscount +
++                unitDiscount,
++            );
++
++            discountedByItem.set(
++              unit.itemIndex,
++              roundMoney(
++                (discountedByItem.get(
++                  unit.itemIndex,
++                ) || 0) + unitDiscount,
++              ),
++            );
++          },
++        );
++      }
++
++      if (totalDiscount <= 0) {
++        return;
++      }
++
++      discountedByItem.forEach(
++        (discount, itemIndex) => {
++          const item = itemResults[itemIndex];
++
++          item.discount = roundMoney(
++            item.discount + discount,
++          );
++
++          item.finalSubtotal = roundMoney(
++            item.regularSubtotal -
++              item.discount,
++          );
++
++          item.appliedPromotions.push({
++            id: promotion.id || promotion.key,
++            name:
++              promotion.name ||
++              promotion.description ||
++              'Promotion',
++          });
++        },
++      );
++
++      appliedPromotions.push({
++        id: promotion.id || promotion.key,
++        name:
++          promotion.name ||
++          promotion.description ||
++          'Promotion',
++        minimumQuantity:
++          promotion.minimumQuantity,
++        bundlePrice:
++          promotion.bundlePrice,
++        groupsApplied: groupCount,
++        discount: totalDiscount,
++      });
++    },
++  );
++
++  const regularSubtotal = roundMoney(
++    itemResults.reduce(
++      (sum, item) =>
++        sum + item.regularSubtotal,
++      0,
++    ),
++  );
++
++  const promotionDiscount = roundMoney(
++    itemResults.reduce(
++      (sum, item) => sum + item.discount,
++      0,
++    ),
++  );
++
++  return {
++    regularSubtotal,
++    promotionDiscount,
++    finalTotal: roundMoney(
++      regularSubtotal - promotionDiscount,
++    ),
++    itemResults,
++    appliedPromotions,
++  };
++}
+diff --git a/client/src/pages/CartPage.jsx b/client/src/pages/CartPage.jsx
+index 36fca69..5283afb 100644
+--- a/client/src/pages/CartPage.jsx
++++ b/client/src/pages/CartPage.jsx
+@@ -23,6 +23,10 @@ import {
+   loadShoppingSessions,
+ } from '../services/shoppingSessionApiService';
+ 
++import {
++  calculateCartPricing,
++} from '../lib/promotionPricing';
++
+ const isDev = import.meta.env.DEV;
+ function formatSessionDate(value) {
+   if (!value) {
+@@ -75,25 +79,13 @@ export default function CartPage({
+   const [expandedSessionId, setExpandedSessionId] =
+     useState(null);
+ 
+-  const cartTotal = useMemo(() => {
+-    return cartItems.reduce(
+-      (sum, item) => {
+-        const price = Number(
+-          item.price || 0
+-        );
+-
+-        const quantity = Number(
+-          item.quantity || 1
+-        );
++  const cartPricing = useMemo(
++    () => calculateCartPricing(cartItems),
++    [cartItems]
++  );
+ 
+-        return (
+-          sum +
+-          price * quantity
+-        );
+-      },
+-      0
+-    );
+-  }, [cartItems]);
++  const cartTotal =
++    cartPricing.finalTotal;
+ 
+   const totalQuantity = useMemo(() => {
+     return cartItems.reduce(
+@@ -586,7 +578,7 @@ export default function CartPage({
+         )}
+ 
+         <div className="mt-4 space-y-3">
+-          {cartItems.map((item) => {
++          {cartPricing.itemResults.map((item) => {
+             const price = Number(
+               item.price || 0
+             );
+@@ -596,7 +588,7 @@ export default function CartPage({
+             );
+ 
+             const subtotal =
+-              price * quantity;
++              item.finalSubtotal;
+ 
+             return (
+               <div
+@@ -639,13 +631,26 @@ export default function CartPage({
+                         {quantity}
+                       </p>
+ 
+-                      <p className="font-bold text-green-700">
+-                        €
+-                        {subtotal.toFixed(
+-                          2
++                      <div className="text-right">
++                        {item.discount > 0 && (
++                          <p className="text-xs text-gray-400 line-through">
++                            €{item.regularSubtotal.toFixed(2)}
++                          </p>
+                         )}
+-                      </p>
++
++                        <p className="font-bold text-green-700">
++                          €{subtotal.toFixed(2)}
++                        </p>
++                      </div>
+                     </div>
++
++                    {item.appliedPromotions.length > 0 && (
++                      <div className="mt-3 rounded-xl bg-green-50 px-3 py-2 text-xs font-semibold text-green-700">
++                        {item.appliedPromotions
++                          .map((promotion) => promotion.name)
++                          .join(', ')}
++                      </div>
++                    )}
+                   </div>
+                 </div>
+               </div>
+@@ -665,13 +670,34 @@ export default function CartPage({
+           </div>
+ 
+           <div className="flex justify-between mt-3">
++            <span className="text-gray-600">
++              Regular subtotal
++            </span>
++
++            <span className="font-semibold text-gray-800">
++              €{cartPricing.regularSubtotal.toFixed(2)}
++            </span>
++          </div>
++
++          {cartPricing.promotionDiscount > 0 && (
++            <div className="flex justify-between mt-3 text-green-700">
++              <span className="font-semibold">
++                Promotion savings
++              </span>
++
++              <span className="font-bold">
++                -€{cartPricing.promotionDiscount.toFixed(2)}
++              </span>
++            </div>
++          )}
++
++          <div className="flex justify-between mt-3 border-t border-gray-100 pt-3">
+             <span className="font-semibold text-gray-800">
+               Total
+             </span>
+ 
+             <span className="text-xl font-bold text-green-700">
+-              €
+-              {cartTotal.toFixed(2)}
++              €{cartTotal.toFixed(2)}
+             </span>
+           </div>
+ 
+diff --git a/client/src/pages/ProductConfirmationPage.jsx b/client/src/pages/ProductConfirmationPage.jsx
+index 485955d..1ba9fd0 100644
+--- a/client/src/pages/ProductConfirmationPage.jsx
++++ b/client/src/pages/ProductConfirmationPage.jsx
+@@ -729,6 +729,10 @@ function ProductConfirmationPage({
+           : product.dunnesSku
+           ? 0.0
+           : null,
++      promotions:
++        Array.isArray(product.promotions)
++          ? product.promotions
++          : [],
+     };
+ 
+     setSavingProduct(true);
+@@ -781,6 +785,14 @@ function ProductConfirmationPage({
+             savedProduct?.dunnesSku ||
+             confirmedProduct.dunnesSku ||
+             '',
++          promotions:
++            Array.isArray(savedProduct?.promotions)
++              ? savedProduct.promotions
++              : confirmedProduct.promotions,
++          hasPromotion:
++            Array.isArray(savedProduct?.promotions)
++              ? savedProduct.promotions.length > 0
++              : confirmedProduct.promotions.length > 0,
+           quantity: increment(quantity),
+           updatedAt: serverTimestamp(),
+         },
+@@ -1182,6 +1194,10 @@ function ProductConfirmationPage({
+                               )
+                                 ? Number(candidate.price)
+                                 : null,
++                            promotions:
++                              Array.isArray(candidate.promotions)
++                                ? candidate.promotions
++                                : [],
+                             source:
+                               'open-food-facts-ai',
+                             originalSource:
+diff --git a/server/src/routes/productRoutes.js b/server/src/routes/productRoutes.js
+index 573058f..8648e30 100644
+--- a/server/src/routes/productRoutes.js
++++ b/server/src/routes/productRoutes.js
+@@ -82,6 +82,12 @@ function validateProduct(requestBody) {
+     requestBody.price,
+   );
+ 
++  const promotions = Array.isArray(
++    requestBody.promotions,
++  )
++    ? requestBody.promotions
++    : [];
++
+   const errors = [];
+ 
+   if (!isValidBarcode(barcode)) {
+@@ -145,6 +151,7 @@ function validateProduct(requestBody) {
+       dunnesSku,
+       matchMethod,
+       matchConfidence,
++      promotions,
+     },
+   };
+ }
+@@ -205,6 +212,19 @@ router.get(
+           candidates: dunnesCandidates,
+         });
+ 
++      const candidateBySku = new Map(
++        dunnesCandidates.map((candidate) => [
++          candidate.dunnesSku,
++          candidate,
++        ]),
++      );
++
++      const enrichedCandidates =
++        rankedCandidates.matches.map((match) => ({
++          ...candidateBySku.get(match.dunnesSku),
++          ...match,
++        }));
++
+       return response.json({
+         success: true,
+         found: true,
+@@ -212,7 +232,7 @@ router.get(
+         product: openFoodFactsProduct,
+         manualEntryRequired: false,
+         confirmationRequired: true,
+-        dunnesCandidates: rankedCandidates.matches,
++        dunnesCandidates: enrichedCandidates,
+         noReliableMatch:
+           rankedCandidates.noReliableMatch,
+       });
+diff --git a/server/src/services/dunnesCatalogueMatchService.js b/server/src/services/dunnesCatalogueMatchService.js
+index abff60d..b6787ce 100644
+--- a/server/src/services/dunnesCatalogueMatchService.js
++++ b/server/src/services/dunnesCatalogueMatchService.js
+@@ -23,6 +23,8 @@ function serialiseCatalogueProduct(documentSnapshot) {
+     imageUrl: String(data.imageUrl || ''),
+     available: data.available !== false,
+     promotions: Array.isArray(data.promotions) ? data.promotions : [],
++    hasPromotion: Boolean(data.hasPromotion),
++    priceSource: String(data.priceSource || ''),
+   };
+ }
+ 
+@@ -75,6 +77,10 @@ export function formatDunnesCandidates(catalogueProducts) {
+     defaultCategory: product.defaultCategory,
+     unitPrice: product.unitPrice,
+     price: product.price,
++    imageUrl: product.imageUrl,
++    promotions: product.promotions,
++    hasPromotion: product.hasPromotion,
++    priceSource: product.priceSource,
+     score: product.matchScore,
+   }));
+ }
+diff --git a/server/src/services/productCatalogueService.js b/server/src/services/productCatalogueService.js
+index 474bca1..d0c1f56 100644
+--- a/server/src/services/productCatalogueService.js
++++ b/server/src/services/productCatalogueService.js
+@@ -48,6 +48,12 @@ export async function findSavedProduct(barcode) {
+       data.originalSource ||
+       data.source ||
+       'manual',
++    promotions: Array.isArray(data.promotions)
++      ? data.promotions
++      : [],
++    hasPromotion: Boolean(data.hasPromotion),
++    promotionUpdatedAt:
++      data.promotionUpdatedAt || null,
+   };
+ }
+ 
+@@ -76,6 +82,14 @@ export async function saveCatalogueProduct(
+       product.originalSource ||
+       product.source ||
+       'manual',
++    promotions: Array.isArray(product.promotions)
++      ? product.promotions
++      : [],
++    hasPromotion:
++      Array.isArray(product.promotions) &&
++      product.promotions.length > 0,
++    promotionUpdatedAt:
++      FieldValue.serverTimestamp(),
+     source: 'firebase',
+     updatedBy: userId,
+     updatedAt: FieldValue.serverTimestamp(),
+@@ -108,5 +122,7 @@ export async function saveCatalogueProduct(
+     source: 'firebase',
+     originalSource:
+       documentData.originalSource,
++    promotions: documentData.promotions,
++    hasPromotion: documentData.hasPromotion,
+   };
+ }
+\ No newline at end of file
+diff --git a/updated/server/src/services/promotionPricingService.js b/server/src/services/promotionPricingService.js
+new file mode 100644
+index 0000000..47eff6c
+--- /dev/null
++++ b/server/src/services/promotionPricingService.js
+@@ -0,0 +1,396 @@
++function roundMoney(value) {
++  return Number(Number(value || 0).toFixed(2));
++}
++
++function parsePromotionDate(value) {
++  if (!value) {
++    return null;
++  }
++
++  const directDate = new Date(value);
++
++  if (!Number.isNaN(directDate.getTime())) {
++    return directDate;
++  }
++
++  const match = String(value).match(
++    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
++  );
++
++  if (!match) {
++    return null;
++  }
++
++  const [, day, month, year] = match;
++
++  return new Date(
++    Number(year),
++    Number(month) - 1,
++    Number(day),
++    23,
++    59,
++    59,
++    999,
++  );
++}
++
++function isPromotionActive(
++  promotion,
++  now = new Date(),
++) {
++  if (!promotion) {
++    return false;
++  }
++
++  if (
++    promotion.loyaltyBased ||
++    promotion.pointsBased
++  ) {
++    return false;
++  }
++
++  const startDate = parsePromotionDate(
++    promotion.startDateUtc ||
++      promotion.startDate,
++  );
++
++  const endDate = parsePromotionDate(
++    promotion.endDateUtc ||
++      promotion.endDate,
++  );
++
++  if (startDate && now < startDate) {
++    return false;
++  }
++
++  if (endDate && now > endDate) {
++    return false;
++  }
++
++  return true;
++}
++
++function parseBulkOffer(promotion) {
++  const text = [
++    promotion?.name,
++    promotion?.description,
++  ]
++    .filter(Boolean)
++    .join(' ');
++
++  const match = text.match(
++    /buy\s+(\d+)\s+for\s+[€£]?\s*(\d+(?:[.,]\d{1,2})?)/i,
++  );
++
++  if (!match) {
++    return null;
++  }
++
++  const minimumQuantity = Number(
++    promotion.minimumQuantity || match[1],
++  );
++
++  const bundlePrice = Number(
++    match[2].replace(',', '.'),
++  );
++
++  if (
++    !Number.isFinite(minimumQuantity) ||
++    minimumQuantity < 2 ||
++    !Number.isFinite(bundlePrice) ||
++    bundlePrice <= 0
++  ) {
++    return null;
++  }
++
++  return {
++    minimumQuantity,
++    bundlePrice,
++  };
++}
++
++function getPromotionKey(promotion) {
++  const id = String(
++    promotion?.id || '',
++  ).trim();
++
++  if (id) {
++    return id;
++  }
++
++  return [
++    promotion?.name,
++    promotion?.startDateUtc ||
++      promotion?.startDate,
++    promotion?.endDateUtc ||
++      promotion?.endDate,
++  ]
++    .filter(Boolean)
++    .join('|');
++}
++
++function getEligibleBulkPromotion(item) {
++  const promotions = Array.isArray(
++    item?.promotions,
++  )
++    ? item.promotions
++    : [];
++
++  for (const promotion of promotions) {
++    if (!isPromotionActive(promotion)) {
++      continue;
++    }
++
++    const parsedOffer =
++      parseBulkOffer(promotion);
++
++    if (!parsedOffer) {
++      continue;
++    }
++
++    const key = getPromotionKey(promotion);
++
++    if (!key) {
++      continue;
++    }
++
++    return {
++      ...promotion,
++      ...parsedOffer,
++      key,
++    };
++  }
++
++  return null;
++}
++
++export function calculateCartPricing(cartItems) {
++  const itemResults = (cartItems || []).map(
++    (item) => {
++      const price = Number(item.price || 0);
++      const quantity = Math.max(
++        1,
++        Number(item.quantity || 1),
++      );
++
++      return {
++        ...item,
++        price,
++        quantity,
++        regularSubtotal: roundMoney(
++          price * quantity,
++        ),
++        finalSubtotal: roundMoney(
++          price * quantity,
++        ),
++        discount: 0,
++        appliedPromotions: [],
++      };
++    },
++  );
++
++  const promotionGroups = new Map();
++
++  itemResults.forEach((item, index) => {
++    const promotion =
++      getEligibleBulkPromotion(item);
++
++    if (!promotion) {
++      return;
++    }
++
++    const currentGroup =
++      promotionGroups.get(promotion.key) || {
++        promotion,
++        itemIndexes: [],
++      };
++
++    currentGroup.itemIndexes.push(index);
++    promotionGroups.set(
++      promotion.key,
++      currentGroup,
++    );
++  });
++
++  const appliedPromotions = [];
++
++  promotionGroups.forEach(
++    ({ promotion, itemIndexes }) => {
++      const units = [];
++
++      itemIndexes.forEach((itemIndex) => {
++        const item = itemResults[itemIndex];
++
++        for (
++          let unitIndex = 0;
++          unitIndex < item.quantity;
++          unitIndex += 1
++        ) {
++          units.push({
++            itemIndex,
++            unitPrice: item.price,
++          });
++        }
++      });
++
++      units.sort(
++        (first, second) =>
++          second.unitPrice - first.unitPrice,
++      );
++
++      const groupCount = Math.floor(
++        units.length /
++          promotion.minimumQuantity,
++      );
++
++      if (groupCount < 1) {
++        return;
++      }
++
++      let totalDiscount = 0;
++      const discountedByItem = new Map();
++
++      for (
++        let groupIndex = 0;
++        groupIndex < groupCount;
++        groupIndex += 1
++      ) {
++        const start =
++          groupIndex *
++          promotion.minimumQuantity;
++
++        const groupUnits = units.slice(
++          start,
++          start + promotion.minimumQuantity,
++        );
++
++        const regularGroupTotal =
++          groupUnits.reduce(
++            (sum, unit) =>
++              sum + unit.unitPrice,
++            0,
++          );
++
++        const groupDiscount = Math.max(
++          0,
++          roundMoney(
++            regularGroupTotal -
++              promotion.bundlePrice,
++          ),
++        );
++
++        if (groupDiscount <= 0) {
++          continue;
++        }
++
++        totalDiscount = roundMoney(
++          totalDiscount + groupDiscount,
++        );
++
++        const regularDenominator =
++          regularGroupTotal || 1;
++
++        let allocatedDiscount = 0;
++
++        groupUnits.forEach(
++          (unit, unitIndex) => {
++            const isLastUnit =
++              unitIndex ===
++              groupUnits.length - 1;
++
++            const unitDiscount = isLastUnit
++              ? roundMoney(
++                  groupDiscount -
++                    allocatedDiscount,
++                )
++              : roundMoney(
++                  groupDiscount *
++                    (unit.unitPrice /
++                      regularDenominator),
++                );
++
++            allocatedDiscount = roundMoney(
++              allocatedDiscount +
++                unitDiscount,
++            );
++
++            discountedByItem.set(
++              unit.itemIndex,
++              roundMoney(
++                (discountedByItem.get(
++                  unit.itemIndex,
++                ) || 0) + unitDiscount,
++              ),
++            );
++          },
++        );
++      }
++
++      if (totalDiscount <= 0) {
++        return;
++      }
++
++      discountedByItem.forEach(
++        (discount, itemIndex) => {
++          const item = itemResults[itemIndex];
++
++          item.discount = roundMoney(
++            item.discount + discount,
++          );
++
++          item.finalSubtotal = roundMoney(
++            item.regularSubtotal -
++              item.discount,
++          );
++
++          item.appliedPromotions.push({
++            id: promotion.id || promotion.key,
++            name:
++              promotion.name ||
++              promotion.description ||
++              'Promotion',
++          });
++        },
++      );
++
++      appliedPromotions.push({
++        id: promotion.id || promotion.key,
++        name:
++          promotion.name ||
++          promotion.description ||
++          'Promotion',
++        minimumQuantity:
++          promotion.minimumQuantity,
++        bundlePrice:
++          promotion.bundlePrice,
++        groupsApplied: groupCount,
++        discount: totalDiscount,
++      });
++    },
++  );
++
++  const regularSubtotal = roundMoney(
++    itemResults.reduce(
++      (sum, item) =>
++        sum + item.regularSubtotal,
++      0,
++    ),
++  );
++
++  const promotionDiscount = roundMoney(
++    itemResults.reduce(
++      (sum, item) => sum + item.discount,
++      0,
++    ),
++  );
++
++  return {
++    regularSubtotal,
++    promotionDiscount,
++    finalTotal: roundMoney(
++      regularSubtotal - promotionDiscount,
++    ),
++    itemResults,
++    appliedPromotions,
++  };
++}
+diff --git a/server/src/services/shoppingSessionService.js b/server/src/services/shoppingSessionService.js
+index 3decd06..d09adc6 100644
+--- a/server/src/services/shoppingSessionService.js
++++ b/server/src/services/shoppingSessionService.js
+@@ -6,6 +6,10 @@ import {
+   adminDb,
+ } from '../config/firebaseAdmin.js';
+ 
++import {
++  calculateCartPricing,
++} from './promotionPricingService.js';
++
+ const appId = 'dunnes-trolley';
+ 
+ function normaliseCartItem(cartDocument) {
+@@ -27,6 +31,10 @@ function normaliseCartItem(cartDocument) {
+     imageUrl: String(data.imageUrl || ''),
+     price,
+     quantity,
++    dunnesSku: String(data.dunnesSku || ''),
++    promotions: Array.isArray(data.promotions)
++      ? data.promotions
++      : [],
+     subtotal: Number(
+       (price * quantity).toFixed(2),
+     ),
+@@ -109,24 +117,31 @@ export async function finishShoppingSession(
+         0,
+       );
+ 
+-      const total = Number(
+-        items
+-          .reduce(
+-            (sum, item) =>
+-              sum + item.subtotal,
+-            0,
+-          )
+-          .toFixed(2),
+-      );
++      const pricing =
++        calculateCartPricing(items);
++
++      const pricedItems =
++        pricing.itemResults.map((item) => ({
++          ...item,
++          subtotal: item.finalSubtotal,
++        }));
++
++      const total = pricing.finalTotal;
+ 
+       const sessionRef =
+         sessionsRef.doc();
+ 
+       const session = {
+         status: 'completed',
+-        items,
+-        uniqueItemCount: items.length,
++        items: pricedItems,
++        uniqueItemCount: pricedItems.length,
+         itemCount,
++        regularSubtotal:
++          pricing.regularSubtotal,
++        promotionDiscount:
++          pricing.promotionDiscount,
++        appliedPromotions:
++          pricing.appliedPromotions,
+         total,
+         createdAt:
+           FieldValue.serverTimestamp(),
+@@ -150,9 +165,15 @@ export async function finishShoppingSession(
+       return {
+         id: sessionRef.id,
+         status: 'completed',
+-        items,
+-        uniqueItemCount: items.length,
++        items: pricedItems,
++        uniqueItemCount: pricedItems.length,
+         itemCount,
++        regularSubtotal:
++          pricing.regularSubtotal,
++        promotionDiscount:
++          pricing.promotionDiscount,
++        appliedPromotions:
++          pricing.appliedPromotions,
+         total,
+         createdAt:
+           new Date().toISOString(),

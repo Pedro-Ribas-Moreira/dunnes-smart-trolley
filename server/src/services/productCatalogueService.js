@@ -48,6 +48,12 @@ export async function findSavedProduct(barcode) {
       data.originalSource ||
       data.source ||
       'manual',
+    promotions: Array.isArray(data.promotions)
+      ? data.promotions
+      : [],
+    hasPromotion: Boolean(data.hasPromotion),
+    promotionUpdatedAt:
+      data.promotionUpdatedAt || null,
   };
 }
 
@@ -76,6 +82,14 @@ export async function saveCatalogueProduct(
       product.originalSource ||
       product.source ||
       'manual',
+    promotions: Array.isArray(product.promotions)
+      ? product.promotions
+      : [],
+    hasPromotion:
+      Array.isArray(product.promotions) &&
+      product.promotions.length > 0,
+    promotionUpdatedAt:
+      FieldValue.serverTimestamp(),
     source: 'firebase',
     updatedBy: userId,
     updatedAt: FieldValue.serverTimestamp(),
@@ -108,5 +122,7 @@ export async function saveCatalogueProduct(
     source: 'firebase',
     originalSource:
       documentData.originalSource,
+    promotions: documentData.promotions,
+    hasPromotion: documentData.hasPromotion,
   };
 }

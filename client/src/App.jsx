@@ -34,6 +34,10 @@ import {
   logoutUser,
 } from './services/authService';
 
+import {
+  calculateCartPricing,
+} from './lib/promotionPricing';
+
 const appId = 'dunnes-trolley';
 
 export default function App() {
@@ -213,24 +217,13 @@ export default function App() {
     setActiveTab('profile');
   };
 
-  const cartTotal = useMemo(() => {
-    return cartItems.reduce(
-      (sum, item) => {
-        const price = Number(
-          item.price || 0,
-        );
+  const cartPricing = useMemo(
+    () => calculateCartPricing(cartItems),
+    [cartItems],
+  );
 
-        const quantity = Number(
-          item.quantity || 1,
-        );
-
-        return (
-          sum + price * quantity
-        );
-      },
-      0,
-    );
-  }, [cartItems]);
+  const cartTotal =
+    cartPricing.finalTotal;
 
   const totalQuantity =
     useMemo(() => {

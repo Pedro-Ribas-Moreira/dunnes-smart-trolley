@@ -23,6 +23,8 @@ import {
   Plus,
   RefreshCw,
   ShoppingCart,
+    LoaderCircle,
+
   X,
 } from 'lucide-react';
 
@@ -165,7 +167,7 @@ function ProductConfirmationPage({
       try {
         timeoutId = setTimeout(() => {
           controller.abort();
-        }, 10000);
+        }, 120000);
 
         const lookupResult =
           await lookupProduct(
@@ -729,6 +731,10 @@ function ProductConfirmationPage({
           : product.dunnesSku
           ? 0.0
           : null,
+      promotions:
+        Array.isArray(product.promotions)
+          ? product.promotions
+          : [],
     };
 
     setSavingProduct(true);
@@ -781,6 +787,14 @@ function ProductConfirmationPage({
             savedProduct?.dunnesSku ||
             confirmedProduct.dunnesSku ||
             '',
+          promotions:
+            Array.isArray(savedProduct?.promotions)
+              ? savedProduct.promotions
+              : confirmedProduct.promotions,
+          hasPromotion:
+            Array.isArray(savedProduct?.promotions)
+              ? savedProduct.promotions.length > 0
+              : confirmedProduct.promotions.length > 0,
           quantity: increment(quantity),
           updatedAt: serverTimestamp(),
         },
@@ -835,9 +849,26 @@ function ProductConfirmationPage({
           className="animate-spin text-green-700"
         />
 
-        <p className="mt-4 text-gray-600 font-semibold">
-          Looking up product...
-        </p>
+<div className="text-center">
+  <LoaderCircle
+    size={42}
+    className="mx-auto animate-spin text-green-700"
+  />
+
+  <h2 className="mt-5 text-xl font-bold text-gray-900">
+    Finding your product
+  </h2>
+
+  <p className="mt-2 text-gray-600">
+    We are checking Open Food Facts, searching the Dunnes
+    catalogue and looking for active promotions.
+  </p>
+
+  <p className="mt-3 text-sm text-gray-400">
+    The first lookup for a new product can take up to a minute.
+    Future scans will be much faster.
+  </p>
+</div>
 
         <p className="mt-1 text-xs text-gray-400">
           Barcode: {barcode}
@@ -911,7 +942,218 @@ function ProductConfirmationPage({
             </div>
           </div>
         )}
+        {dunnesCandidates.length > 0 &&
+  lookupSource !== 'manual' &&
+  lookupSource !== 'dunnes-candidate-match' && (
+    <div className="mt-5 rounded-3xl border border-blue-200 bg-blue-50/40 p-4">
+      <div className="flex items-start gap-3">
+        <PackageSearch
+          size={24}
+          className="mt-0.5 shrink-0 text-blue-700"
+        />
 
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">
+            Select the matching Dunnes product
+          </h2>
+
+          <p className="mt-1 text-sm text-gray-600">
+            Check the product name, pack size and image before selecting it.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {dunnesCandidates.map((candidate) => {
+          const percentage =
+            formatMatchPercentage(
+              candidate.confidence ??
+                candidate.score,
+            );
+
+          const candidatePrice =
+            Number(candidate.price);
+
+          const promotions =
+            Array.isArray(candidate.promotions)
+              ? candidate.promotions
+              : [];
+
+          return (
+            <button
+              key={candidate.dunnesSku}
+              type="button"
+              onClick={() => {
+                setProduct({
+                  barcode,
+
+                  dunnesSku:
+                    candidate.dunnesSku || '',
+
+                  name:
+                    candidate.name || '',
+
+                  brand:
+                    candidate.brand || '',
+
+                  imageUrl:
+                    candidate.imageUrl || '',
+
+                  price:
+                    Number.isFinite(
+                      candidatePrice,
+                    )
+                      ? candidatePrice
+                      : null,
+
+                  source:
+                    'open-food-facts-ai',
+
+                  originalSource:
+                    'open-food-facts',
+
+                  matchMethod:
+                    'open-food-facts-ai',
+
+                  matchConfidence:
+                    Number.isFinite(
+                      Number(
+                        candidate.confidence,
+                      ),
+                    )
+                      ? Number(
+                          candidate.confidence,
+                        )
+                      : null,
+
+                  promotions,
+
+                  hasPromotion:
+                    promotions.length > 0,
+                });
+
+                setPrice(
+                  Number.isFinite(
+                    candidatePrice,
+                  ) &&
+                    candidatePrice > 0
+                    ? candidatePrice.toFixed(2)
+                    : '',
+                );
+
+                setLookupSource(
+                  'dunnes-candidate-match',
+                );
+
+                setNotice(
+                  'Dunnes product selected. Confirm the product and price before adding it to your trolley.',
+                );
+
+                setError('');
+              }}
+              disabled={savingProduct}
+              className="w-full rounded-2xl border border-gray-200 bg-white p-4 text-left shadow-sm transition hover:border-green-600 hover:shadow-md disabled:opacity-60"
+            >
+              <div className="flex gap-4">
+                {candidate.imageUrl ? (
+                  <img
+                    src={candidate.imageUrl}
+                    alt={candidate.name}
+                    className="h-24 w-24 shrink-0 rounded-xl bg-gray-50 object-contain"
+                  />
+                ) : (
+                  <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-xl bg-gray-100">
+                    <ImagePlus
+                      size={28}
+                      className="text-gray-400"
+                    />
+                  </div>
+                )}
+
+                <div className="min-w-0 flex-1">
+                  {candidate.brand && (
+                    <p className="text-sm text-gray-500">
+                      {candidate.brand}
+                    </p>
+                  )}
+
+                  <h3 className="mt-1 font-bold text-gray-900">
+                    {candidate.name}
+                  </h3>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="font-bold text-green-700">
+                      {Number.isFinite(
+                        candidatePrice,
+                      )
+                        ? `€${candidatePrice.toFixed(
+                            2,
+                          )}`
+                        : 'Price unavailable'}
+                    </span>
+
+                    {percentage !== null && (
+                      <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+                        {percentage}% match
+                      </span>
+                    )}
+
+                    {promotions.length > 0 && (
+                      <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+                        {promotions[0].name ||
+                          promotions[0].description ||
+                          'Promotion available'}
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="mt-2 text-xs text-gray-400">
+                    Dunnes SKU:{' '}
+                    {candidate.dunnesSku}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-green-700 py-2.5 font-bold text-white">
+                <Check size={18} />
+                This is my product
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => {
+          setDunnesCandidates([]);
+          setLookupSource('manual');
+
+          setProduct((currentProduct) => ({
+            ...createManualProduct(barcode),
+
+            name:
+              currentProduct?.name || '',
+
+            brand:
+              currentProduct?.brand || '',
+
+            imageUrl:
+              currentProduct?.imageUrl || '',
+          }));
+
+          setPrice('');
+
+          setNotice(
+            'No Dunnes match selected. Enter the shelf price manually.',
+          );
+        }}
+        className="mt-4 w-full rounded-xl border border-gray-300 bg-white py-3 font-semibold text-gray-700"
+      >
+        None of these, enter manually
+      </button>
+    </div>
+  )}
         {manualEntry && (
           <div className="mb-7">
             <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
@@ -1144,155 +1386,7 @@ function ProductConfirmationPage({
               </div>
             )}
 
-            {dunnesCandidates.length > 0 && lookupSource !== 'manual' && (
-              <div className="mt-5">
-                <h2 className="text-lg font-bold text-gray-800">
-                  Dunnes candidate matches
-                </h2>
-
-                <p className="text-sm text-gray-500 mt-1">
-                  Choose the best Dunnes product candidate, or continue with manual entry.
-                </p>
-
-                <div className="mt-4 space-y-3">
-                  {dunnesCandidates.map((candidate) => {
-                    const percentage =
-                      formatMatchPercentage(
-                        candidate.confidence || candidate.score,
-                      );
-
-                    return (
-                      <button
-                        key={candidate.dunnesSku}
-                        type="button"
-                        onClick={() => {
-                          setProduct({
-                            barcode,
-                            dunnesSku:
-                              candidate.dunnesSku || '',
-                            name:
-                              candidate.name || '',
-                            brand:
-                              candidate.brand || '',
-                            imageUrl:
-                              candidate.imageUrl || '',
-                            price:
-                              Number.isFinite(
-                                Number(candidate.price),
-                              )
-                                ? Number(candidate.price)
-                                : null,
-                            source:
-                              'open-food-facts-ai',
-                            originalSource:
-                              'open-food-facts',
-                            matchMethod:
-                              'open-food-facts-ai',
-                            matchConfidence:
-                              Number.isFinite(
-                                Number(candidate.confidence),
-                              )
-                                ? Number(
-                                    candidate.confidence,
-                                  )
-                                : null,
-                          });
-
-                          setPrice(
-                            Number.isFinite(
-                              Number(candidate.price),
-                            ) &&
-                              Number(candidate.price) >
-                                0
-                              ? Number(
-                                  candidate.price,
-                                ).toFixed(2)
-                              : '',
-                          );
-
-                          setLookupSource(
-                            'dunnes-candidate-match',
-                          );
-
-                          setNotice(
-                            'Dunnes candidate selected. Confirm the product and shelf price before adding it.',
-                          );
-
-                          setError('');
-                        }}
-                        disabled={savingProduct}
-                        className="w-full border border-gray-200 rounded-2xl p-4 text-left bg-white hover:border-green-600 disabled:opacity-60"
-                      >
-                        <div className="flex gap-4">
-                          {candidate.imageUrl ? (
-                            <img
-                              src={candidate.imageUrl}
-                              alt={candidate.name}
-                              className="w-20 h-20 rounded-xl object-contain bg-gray-50 shrink-0"
-                            />
-                          ) : (
-                            <div className="w-20 h-20 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
-                              <ImagePlus
-                                size={27}
-                                className="text-gray-400"
-                              />
-                            </div>
-                          )}
-
-                          <div className="flex-1 min-w-0">
-                            {candidate.brand && (
-                              <p className="text-sm text-gray-500">
-                                {candidate.brand}
-                              </p>
-                            )}
-
-                            <h3 className="font-bold text-gray-800 mt-1">
-                              {candidate.name}
-                            </h3>
-
-                            <div className="flex items-center justify-between gap-3 mt-3">
-                              <span className="font-bold text-green-700">
-                                {Number.isFinite(
-                                  Number(candidate.price),
-                                )
-                                  ? `€${Number(
-                                      candidate.price,
-                                    ).toFixed(2)}`
-                                  : 'Price unavailable'}
-                              </span>
-
-                              {percentage !== null && (
-                                <span className="text-xs font-semibold bg-green-100 text-green-700 rounded-full px-3 py-1">
-                                  {percentage}% match
-                                </span>
-                              )}
-                            </div>
-
-                            <p className="text-xs text-gray-400 mt-2">
-                              Dunnes SKU: {candidate.dunnesSku}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 flex items-center justify-center gap-2 bg-green-700 text-white font-bold py-2.5 rounded-xl">
-                          <Check size={18} />
-                          Use this candidate
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={changeSelectedMatch}
-                  className="w-full mt-4 border border-gray-300 text-gray-700 font-semibold py-3 rounded-xl"
-                >
-                  None of these, enter manually
-                </button>
-              </div>
-            )}
-
+           
             {photoMatchAttempted &&
               !analysingPhoto &&
               photoMatches.length === 0 && (
