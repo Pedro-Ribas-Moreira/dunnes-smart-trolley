@@ -1,91 +1,87 @@
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || '';
 
-import { db } from '../Firebase';
+async function readApiResponse(response) {
+  const contentType =
+    response.headers.get('content-type') || '';
 
-const appId = 'dunnes-trolley';
-
-function getProductReference(barcode) {
-  return doc(db, 'artifacts', appId, 'products', barcode);
-}
-
-function parseSavedPrice(value) {
-  const price = Number(value);
-
-  return Number.isFinite(price) && price > 0 ? price : null;
-}
-
-export async function getSavedProduct(barcode) {
-  const productReference = getProductReference(barcode);
-
-  const snapshot = await getDoc(productReference);
-
-  if (!snapshot.exists()) {
-    return null;
+  if (!contentType.includes('application/json')) {
+    throw new Error(
+      'The backend returned an invalid response.',
+    );
   }
 
-  const data = snapshot.data();
-
-  return {
-    barcode,
-    name: data.name || '',
-    brand: data.brand || '',
-    imageUrl: data.imageUrl || '',
-    price: parseSavedPrice(data.price),
-    source: data.source || 'firebase',
-  };
+  return response.json();
 }
 
-export async function getOpenFoodFactsProduct(barcode, signal) {
-  const response = await fetch(`https://world.openfoodfacts.org/api/v0/product/${encodeURIComponent(barcode)}.json`, {
-    signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Open Food Facts returned status ${response.status}`);
-  }
-
-  const data = await response.json();
-
-  if (data.status !== 1 || !data.product) {
-    return null;
-  }
-
-  const productName =
-    data.product.product_name?.trim() ||
-    data.product.product_name_en?.trim() ||
-    data.product.generic_name?.trim() ||
-    '';
-
-  if (!productName) {
-    return null;
-  }
-
-  return {
-    barcode,
-    name: productName,
-    brand: data.product.brands || '',
-    imageUrl: data.product.image_front_small_url || data.product.image_url || '',
-    price: null,
-    source: 'open-food-facts',
-  };
-}
-
-export async function saveProduct(product) {
-  const productReference = getProductReference(product.barcode);
-
-  await setDoc(
-    productReference,
+export async function lookupProduct(
+  barcode,
+  signal,
+) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/products/${encodeURIComponent(
+      barcode,
+    )}`,
     {
-      barcode: product.barcode,
-      name: product.name,
-      brand: product.brand || '',
-      imageUrl: product.imageUrl || '',
-      price: Number(product.price),
-      source: product.source || 'manual',
-      updatedAt: serverTimestamp(),
-    },
-    {
-      merge: true,
+      method: 'GET',
+      signal,
+      headers: {
+        Accept: 'application/json',
+      },
     },
   );
+
+  const data = await readApiResponse(response);
+
+  if (!response.ok) {
+    throw new Error(
+      data.error ||
+        'The product lookup failed.',
+    );
+  }
+
+  return data;
+}
+
+export async function saveProductViaApi(
+  product,
+  user,
+) {
+  if (!user) {
+    throw new Error(
+      'You must be signed in to save a product.',
+    );
+  }
+
+  const idToken = await user.getIdToken(true);
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/products`,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify(product),
+    },
+  );
+
+  const data = await readApiResponse(response);
+
+  if (!response.ok) {
+    const validationMessage =
+      Array.isArray(data.errors)
+        ? data.errors.join(' ')
+        : '';
+
+    throw new Error(
+      validationMessage ||
+        data.error ||
+        'The product could not be saved.',
+    );
+  }
+
+  return data.product;
 }
