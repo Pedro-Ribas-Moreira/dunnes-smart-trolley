@@ -12,24 +12,15 @@ import {
   setDoc,
 } from 'firebase/firestore';
 
-import {
-  ArrowLeft,
-  Camera,
-  Check,
-  ImagePlus,
-  Loader2,
-  Minus,
-  PackageSearch,
-  Plus,
-  RefreshCw,
-  ShoppingCart,
-    LoaderCircle,
-
-  X,
-} from 'lucide-react';
+import { ArrowLeft, Loader2, PackageSearch, ShoppingCart } from 'lucide-react';
 
 import { db } from '../Firebase';
 import { mobileLog } from '../lib/mobileLog';
+import ProductCandidateList from '../components/product/ProductCandidateList';
+import ProductDetailsForm from '../components/product/ProductDetailsForm';
+import ProductLookupLoader from '../components/product/ProductLookupLoader';
+import ProductPhotoSection from '../components/product/ProductPhotoSection';
+import QuantitySelector from '../components/product/QuantitySelector';
 
 import {
   lookupProduct,
@@ -66,21 +57,6 @@ function createManualProduct(barcode) {
   };
 }
 
-function formatMatchPercentage(value) {
-  const numericValue = Number(value);
-
-  if (!Number.isFinite(numericValue)) {
-    return null;
-  }
-
-  return Math.round(
-    Math.min(
-      Math.max(numericValue, 0),
-      1,
-    ) * 100,
-  );
-}
-
 function ProductConfirmationPage({
   barcode,
   user,
@@ -110,8 +86,6 @@ function ProductConfirmationPage({
   const [analysingPhoto, setAnalysingPhoto] =
     useState(false);
 
-  const [photoFile, setPhotoFile] =
-    useState(null);
 
   const [photoPreviewUrl, setPhotoPreviewUrl] =
     useState('');
@@ -150,7 +124,6 @@ function ProductConfirmationPage({
       setNotice('');
       setError('');
       setDunnesCandidates([]);
-      setPhotoFile(null);
       setPhotoPreviewUrl('');
       setPhotoLabel(null);
       setPhotoMatches([]);
@@ -406,7 +379,6 @@ function ProductConfirmationPage({
       );
     }
 
-    setPhotoFile(null);
     setPhotoPreviewUrl('');
     setPhotoLabel(null);
     setPhotoMatches([]);
@@ -475,7 +447,6 @@ function ProductConfirmationPage({
         selectedFile,
       );
 
-    setPhotoFile(selectedFile);
     setPhotoPreviewUrl(previewUrl);
     setPhotoLabel(null);
     setPhotoMatches([]);
@@ -656,6 +627,52 @@ function ProductConfirmationPage({
     );
 
     setError('');
+  };
+
+  const selectDunnesCandidate = (candidate) => {
+    const candidatePrice = Number(candidate.price);
+    const promotions = candidate.promotions ?? [];
+
+    setProduct({
+      barcode,
+      dunnesSku: candidate.dunnesSku || '',
+      name: candidate.name || '',
+      brand: candidate.brand || '',
+      imageUrl: candidate.imageUrl || '',
+      price: Number.isFinite(candidatePrice) ? candidatePrice : null,
+      source: 'open-food-facts-ai',
+      originalSource: 'open-food-facts',
+      matchMethod: 'open-food-facts-ai',
+      matchConfidence: Number.isFinite(Number(candidate.confidence))
+        ? Number(candidate.confidence)
+        : null,
+      promotions,
+      hasPromotion: promotions.length > 0,
+    });
+
+    setPrice(
+      Number.isFinite(candidatePrice) && candidatePrice > 0
+        ? candidatePrice.toFixed(2)
+        : '',
+    );
+    setLookupSource('dunnes-candidate-match');
+    setNotice(
+      'Dunnes product selected. Confirm the product and price before adding it to your trolley.',
+    );
+    setError('');
+  };
+
+  const continueWithManualEntry = () => {
+    setDunnesCandidates([]);
+    setLookupSource('manual');
+    setProduct((currentProduct) => ({
+      ...createManualProduct(barcode),
+      name: currentProduct?.name || '',
+      brand: currentProduct?.brand || '',
+      imageUrl: currentProduct?.imageUrl || '',
+    }));
+    setPrice('');
+    setNotice('No Dunnes match selected. Enter the shelf price manually.');
   };
 
   const addProductToCart = async () => {
@@ -842,39 +859,7 @@ function ProductConfirmationPage({
   };
 
   if (loadingProduct) {
-    return (
-      <div className="min-h-full flex flex-col items-center justify-center p-6">
-        <Loader2
-          size={40}
-          className="animate-spin text-green-700"
-        />
-
-<div className="text-center">
-  <LoaderCircle
-    size={42}
-    className="mx-auto animate-spin text-green-700"
-  />
-
-  <h2 className="mt-5 text-xl font-bold text-gray-900">
-    Finding your product
-  </h2>
-
-  <p className="mt-2 text-gray-600">
-    We are checking Open Food Facts, searching the Dunnes
-    catalogue and looking for active promotions.
-  </p>
-
-  <p className="mt-3 text-sm text-gray-400">
-    The first lookup for a new product can take up to a minute.
-    Future scans will be much faster.
-  </p>
-</div>
-
-        <p className="mt-1 text-xs text-gray-400">
-          Barcode: {barcode}
-        </p>
-      </div>
-    );
+    return <ProductLookupLoader barcode={barcode} />;
   }
 
   if (!product) {
@@ -883,25 +868,28 @@ function ProductConfirmationPage({
         <button
           type="button"
           onClick={onCancel}
-          className="flex items-center gap-2 text-gray-600 font-semibold"
+          className="flex items-center gap-2 font-semibold text-gray-600"
         >
           <ArrowLeft size={20} />
           Back to scanner
         </button>
 
-        <div className="mt-12 bg-white border border-red-200 rounded-2xl p-6 text-center">
+        <div className="mt-12 rounded-2xl border border-red-200 bg-white p-6 text-center">
           <h2 className="text-lg font-bold text-red-700">
             Product could not be loaded
           </h2>
-
-          <p className="text-sm text-gray-600 mt-3">
-            {error ||
-              'Please return to the scanner and try again.'}
+          <p className="mt-3 text-sm text-gray-600">
+            {error || 'Please return to the scanner and try again.'}
           </p>
         </div>
       </div>
     );
   }
+
+  const showDunnesCandidates =
+    dunnesCandidates.length > 0 &&
+    lookupSource !== 'manual' &&
+    lookupSource !== 'dunnes-candidate-match';
 
   return (
     <div className="p-6">
@@ -917,630 +905,72 @@ function ProductConfirmationPage({
       <button
         type="button"
         onClick={onCancel}
-        disabled={
-          savingProduct ||
-          analysingPhoto
-        }
-        className="flex items-center gap-2 text-gray-600 font-semibold disabled:opacity-50"
+        disabled={savingProduct || analysingPhoto}
+        className="flex items-center gap-2 font-semibold text-gray-600 disabled:opacity-50"
       >
         <ArrowLeft size={20} />
         Back to scanner
       </button>
 
-      <div className="mt-6 bg-white border border-gray-100 rounded-3xl p-6 shadow-sm">
+      <div className="mt-6 rounded-3xl border border-gray-100 bg-white p-6 shadow-sm">
         {notice && (
-          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl p-4">
+          <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4">
             <div className="flex items-start gap-3">
               <PackageSearch
                 size={20}
-                className="text-blue-700 mt-0.5 shrink-0"
+                className="mt-0.5 shrink-0 text-blue-700"
               />
-
-              <p className="text-sm text-blue-800">
-                {notice}
-              </p>
+              <p className="text-sm text-blue-800">{notice}</p>
             </div>
           </div>
         )}
-        {dunnesCandidates.length > 0 &&
-  lookupSource !== 'manual' &&
-  lookupSource !== 'dunnes-candidate-match' && (
-    <div className="mt-5 rounded-3xl border border-blue-200 bg-blue-50/40 p-4">
-      <div className="flex items-start gap-3">
-        <PackageSearch
-          size={24}
-          className="mt-0.5 shrink-0 text-blue-700"
-        />
 
-        <div>
-          <h2 className="text-lg font-bold text-gray-900">
-            Select the matching Dunnes product
-          </h2>
+        {showDunnesCandidates && (
+          <ProductCandidateList
+            candidates={dunnesCandidates}
+            disabled={savingProduct}
+            onSelect={selectDunnesCandidate}
+            onManualEntry={continueWithManualEntry}
+          />
+        )}
 
-          <p className="mt-1 text-sm text-gray-600">
-            Check the product name, pack size and image before selecting it.
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-3">
-        {dunnesCandidates.map((candidate) => {
-          const percentage =
-            formatMatchPercentage(
-              candidate.confidence ??
-                candidate.score,
-            );
-
-          const candidatePrice =
-            Number(candidate.price);
-
-          const promotions =
-            Array.isArray(candidate.promotions)
-              ? candidate.promotions
-              : [];
-
-          return (
-            <button
-              key={candidate.dunnesSku}
-              type="button"
-              onClick={() => {
-                setProduct({
-                  barcode,
-
-                  dunnesSku:
-                    candidate.dunnesSku || '',
-
-                  name:
-                    candidate.name || '',
-
-                  brand:
-                    candidate.brand || '',
-
-                  imageUrl:
-                    candidate.imageUrl || '',
-
-                  price:
-                    Number.isFinite(
-                      candidatePrice,
-                    )
-                      ? candidatePrice
-                      : null,
-
-                  source:
-                    'open-food-facts-ai',
-
-                  originalSource:
-                    'open-food-facts',
-
-                  matchMethod:
-                    'open-food-facts-ai',
-
-                  matchConfidence:
-                    Number.isFinite(
-                      Number(
-                        candidate.confidence,
-                      ),
-                    )
-                      ? Number(
-                          candidate.confidence,
-                        )
-                      : null,
-
-                  promotions,
-
-                  hasPromotion:
-                    promotions.length > 0,
-                });
-
-                setPrice(
-                  Number.isFinite(
-                    candidatePrice,
-                  ) &&
-                    candidatePrice > 0
-                    ? candidatePrice.toFixed(2)
-                    : '',
-                );
-
-                setLookupSource(
-                  'dunnes-candidate-match',
-                );
-
-                setNotice(
-                  'Dunnes product selected. Confirm the product and price before adding it to your trolley.',
-                );
-
-                setError('');
-              }}
-              disabled={savingProduct}
-              className="w-full rounded-2xl border border-gray-200 bg-white p-4 text-left shadow-sm transition hover:border-green-600 hover:shadow-md disabled:opacity-60"
-            >
-              <div className="flex gap-4">
-                {candidate.imageUrl ? (
-                  <img
-                    src={candidate.imageUrl}
-                    alt={candidate.name}
-                    className="h-24 w-24 shrink-0 rounded-xl bg-gray-50 object-contain"
-                  />
-                ) : (
-                  <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-xl bg-gray-100">
-                    <ImagePlus
-                      size={28}
-                      className="text-gray-400"
-                    />
-                  </div>
-                )}
-
-                <div className="min-w-0 flex-1">
-                  {candidate.brand && (
-                    <p className="text-sm text-gray-500">
-                      {candidate.brand}
-                    </p>
-                  )}
-
-                  <h3 className="mt-1 font-bold text-gray-900">
-                    {candidate.name}
-                  </h3>
-
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className="font-bold text-green-700">
-                      {Number.isFinite(
-                        candidatePrice,
-                      )
-                        ? `€${candidatePrice.toFixed(
-                            2,
-                          )}`
-                        : 'Price unavailable'}
-                    </span>
-
-                    {percentage !== null && (
-                      <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
-                        {percentage}% match
-                      </span>
-                    )}
-
-                    {promotions.length > 0 && (
-                      <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
-                        {promotions[0].name ||
-                          promotions[0].description ||
-                          'Promotion available'}
-                      </span>
-                    )}
-                  </div>
-
-                  <p className="mt-2 text-xs text-gray-400">
-                    Dunnes SKU:{' '}
-                    {candidate.dunnesSku}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-green-700 py-2.5 font-bold text-white">
-                <Check size={18} />
-                This is my product
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      <button
-        type="button"
-        onClick={() => {
-          setDunnesCandidates([]);
-          setLookupSource('manual');
-
-          setProduct((currentProduct) => ({
-            ...createManualProduct(barcode),
-
-            name:
-              currentProduct?.name || '',
-
-            brand:
-              currentProduct?.brand || '',
-
-            imageUrl:
-              currentProduct?.imageUrl || '',
-          }));
-
-          setPrice('');
-
-          setNotice(
-            'No Dunnes match selected. Enter the shelf price manually.',
-          );
-        }}
-        className="mt-4 w-full rounded-xl border border-gray-300 bg-white py-3 font-semibold text-gray-700"
-      >
-        None of these, enter manually
-      </button>
-    </div>
-  )}
         {manualEntry && (
-          <div className="mb-7">
-            <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
-              <div className="flex items-start gap-3">
-                <div className="w-11 h-11 rounded-xl bg-white flex items-center justify-center shrink-0">
-                  <Camera
-                    size={23}
-                    className="text-green-700"
-                  />
-                </div>
-
-                <div>
-                  <h2 className="font-bold text-gray-800">
-                    Identify from a photo
-                  </h2>
-
-                  <p className="text-sm text-gray-600 mt-1">
-                    Take a clear photo of the front label. We will read the visible details and search the Dunnes catalogue.
-                  </p>
-                </div>
-              </div>
-
-              {!photoPreviewUrl && (
-                <button
-                  type="button"
-                  onClick={openPhotoPicker}
-                  disabled={
-                    analysingPhoto ||
-                    savingProduct
-                  }
-                  className="w-full mt-4 bg-green-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
-                >
-                  <Camera size={20} />
-                  Take Product Photo
-                </button>
-              )}
-
-              {photoPreviewUrl && (
-                <div className="mt-4">
-                  <div className="relative">
-                    <img
-                      src={photoPreviewUrl}
-                      alt="Selected product"
-                      className="w-full max-h-72 object-contain rounded-2xl border border-green-200 bg-white"
-                    />
-
-                    {!analysingPhoto && (
-                      <button
-                        type="button"
-                        onClick={clearPhotoResults}
-                        aria-label="Remove selected photo"
-                        className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm"
-                      >
-                        <X size={20} />
-                      </button>
-                    )}
-                  </div>
-
-                  {analysingPhoto ? (
-                    <div className="mt-4 flex flex-col items-center py-4">
-                      <Loader2
-                        size={32}
-                        className="animate-spin text-green-700"
-                      />
-
-                      <p className="font-semibold text-gray-700 mt-3">
-                        Analysing product...
-                      </p>
-
-                      <p className="text-sm text-gray-500 mt-1 text-center">
-                        Reading the label and searching the Dunnes catalogue
-                      </p>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={openPhotoPicker}
-                      disabled={savingProduct}
-                      className="w-full mt-4 border border-green-700 text-green-700 font-bold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
-                    >
-                      <RefreshCw size={18} />
-                      Take Another Photo
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {photoLabel && (
-                <div className="mt-4 rounded-xl bg-white border border-green-200 p-4">
-                  <p className="text-xs font-bold uppercase tracking-wide text-green-700">
-                    Label detected
-                  </p>
-
-                  <p className="font-semibold text-gray-800 mt-2">
-                    {[
-                      photoLabel.brand,
-                      photoLabel.productName,
-                      photoLabel.variant,
-                      photoLabel.sizeText,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ') ||
-                      'Product details detected'}
-                  </p>
-
-                  {catalogueProductsChecked >
-                    0 && (
-                    <p className="text-xs text-gray-400 mt-2">
-                      Compared with{' '}
-                      {catalogueProductsChecked}{' '}
-                      Dunnes products
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {photoMatches.length > 0 && (
-              <div className="mt-5">
-                <h2 className="text-lg font-bold text-gray-800">
-                  Possible matches
-                </h2>
-
-                <p className="text-sm text-gray-500 mt-1">
-                  Select the product only if the name, size and packaging match.
-                </p>
-
-                <div className="mt-4 space-y-3">
-                  {photoMatches.map(
-                    (match) => {
-                      const percentage =
-                        formatMatchPercentage(
-                          match.matchScore,
-                        );
-
-                      return (
-                        <button
-                          key={
-                            match.dunnesSku
-                          }
-                          type="button"
-                          onClick={() =>
-                            selectPhotoMatch(
-                              match,
-                            )
-                          }
-                          disabled={
-                            savingProduct
-                          }
-                          className="w-full border border-gray-200 rounded-2xl p-4 text-left bg-white hover:border-green-600 disabled:opacity-60"
-                        >
-                          <div className="flex gap-4">
-                            {match.imageUrl ? (
-                              <img
-                                src={
-                                  match.imageUrl
-                                }
-                                alt={
-                                  match.name
-                                }
-                                className="w-20 h-20 rounded-xl object-contain bg-gray-50 shrink-0"
-                              />
-                            ) : (
-                              <div className="w-20 h-20 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
-                                <ImagePlus
-                                  size={27}
-                                  className="text-gray-400"
-                                />
-                              </div>
-                            )}
-
-                            <div className="flex-1 min-w-0">
-                              {match.brand && (
-                                <p className="text-sm text-gray-500">
-                                  {match.brand}
-                                </p>
-                              )}
-
-                              <h3 className="font-bold text-gray-800 mt-1">
-                                {match.name}
-                              </h3>
-
-                              <div className="flex items-center justify-between gap-3 mt-3">
-                                <span className="font-bold text-green-700">
-                                  {Number.isFinite(
-                                    Number(
-                                      match.price,
-                                    ),
-                                  )
-                                    ? `€${Number(
-                                        match.price,
-                                      ).toFixed(
-                                        2,
-                                      )}`
-                                    : 'Price unavailable'}
-                                </span>
-
-                                {percentage !==
-                                  null && (
-                                  <span className="text-xs font-semibold bg-green-100 text-green-700 rounded-full px-3 py-1">
-                                    {percentage}% match
-                                  </span>
-                                )}
-                              </div>
-
-                              <p className="text-xs text-gray-400 mt-2">
-                                Dunnes SKU:{' '}
-                                {match.dunnesSku}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="mt-4 flex items-center justify-center gap-2 bg-green-700 text-white font-bold py-2.5 rounded-xl">
-                            <Check size={18} />
-                            This is my product
-                          </div>
-                        </button>
-                      );
-                    },
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={returnToManualEntry}
-                  className="w-full mt-4 border border-gray-300 text-gray-700 font-semibold py-3 rounded-xl"
-                >
-                  None of these, enter manually
-                </button>
-              </div>
-            )}
-
-           
-            {photoMatchAttempted &&
-              !analysingPhoto &&
-              photoMatches.length === 0 && (
-                <div className="mt-5 rounded-xl bg-amber-50 border border-amber-200 p-4">
-                  <p className="font-semibold text-amber-800">
-                    No close match found
-                  </p>
-
-                  <p className="text-sm text-amber-700 mt-1">
-                    Try a clearer front-facing photo, or continue with manual entry below.
-                  </p>
-                </div>
-              )}
-
-            <div className="flex items-center gap-3 mt-7">
-              <div className="h-px bg-gray-200 flex-1" />
-
-              <span className="text-xs font-semibold text-gray-400 uppercase">
-                Manual entry
-              </span>
-
-              <div className="h-px bg-gray-200 flex-1" />
-            </div>
-          </div>
+          <ProductPhotoSection
+            previewUrl={photoPreviewUrl}
+            label={photoLabel}
+            matches={photoMatches}
+            matchAttempted={photoMatchAttempted}
+            productsChecked={catalogueProductsChecked}
+            analysing={analysingPhoto}
+            disabled={savingProduct}
+            onOpenPicker={openPhotoPicker}
+            onClear={clearPhotoResults}
+            onSelectMatch={selectPhotoMatch}
+            onManualEntry={returnToManualEntry}
+          />
         )}
 
-        {product.imageUrl && (
-          <div className="flex justify-center">
-            <img
-              src={product.imageUrl}
-              alt={
-                product.name || 'Product'
-              }
-              className="w-40 h-40 object-contain rounded-2xl border border-gray-100"
-            />
-          </div>
-        )}
-
-        {manualEntry ? (
-          <div>
-            <h2 className="text-xl font-bold text-gray-800">
-              Enter product details
-            </h2>
-
-            <p className="text-sm text-gray-500 mt-1">
-              Barcode: {product.barcode}
-            </p>
-
-            <div className="mt-6">
-              <label
-                htmlFor="product-name"
-                className="block text-sm font-semibold text-gray-700 mb-2"
-              >
-                Product name
-              </label>
-
-              <input
-                id="product-name"
-                type="text"
-                value={product.name}
-                onChange={(event) =>
-                  updateProductField(
-                    'name',
-                    event.target.value,
-                  )
-                }
-                disabled={savingProduct}
-                placeholder="Enter the product name"
-                maxLength={200}
-                className="w-full border border-gray-300 rounded-xl py-3 px-4 outline-none focus:border-green-600 disabled:opacity-60"
-              />
-            </div>
-
-            <div className="mt-4">
-              <label
-                htmlFor="product-brand"
-                className="block text-sm font-semibold text-gray-700 mb-2"
-              >
-                Brand
-                <span className="font-normal text-gray-400">
-                  {' '}
-                  optional
-                </span>
-              </label>
-
-              <input
-                id="product-brand"
-                type="text"
-                value={product.brand}
-                onChange={(event) =>
-                  updateProductField(
-                    'brand',
-                    event.target.value,
-                  )
-                }
-                disabled={savingProduct}
-                placeholder="Enter the brand"
-                maxLength={100}
-                className="w-full border border-gray-300 rounded-xl py-3 px-4 outline-none focus:border-green-600 disabled:opacity-60"
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="text-center mt-5">
-            {product.brand && (
-              <p className="text-sm text-gray-500">
-                {product.brand}
-              </p>
-            )}
-
-            <h2 className="text-xl font-bold text-gray-800 mt-1">
-              {product.name}
-            </h2>
-
-            <p className="text-xs text-gray-400 mt-2">
-              Barcode: {product.barcode}
-            </p>
-
-            {product.dunnesSku && (
-              <p className="text-xs text-gray-400 mt-1">
-                Dunnes SKU:{' '}
-                {product.dunnesSku}
-              </p>
-            )}
-
-            {lookupSource ===
-              'dunnes-photo-match' && (
-              <button
-                type="button"
-                onClick={
-                  changeSelectedMatch
-                }
-                disabled={savingProduct}
-                className="mt-4 text-sm font-semibold text-green-700 underline disabled:opacity-50"
-              >
-                This is not the correct product
-              </button>
-            )}
-          </div>
-        )}
+        <ProductDetailsForm
+          product={product}
+          manualEntry={manualEntry}
+          lookupSource={lookupSource}
+          disabled={savingProduct}
+          onFieldChange={updateProductField}
+          onChangeMatch={changeSelectedMatch}
+        />
 
         <div className="mt-6">
           <label
             htmlFor="product-price"
-            className="block text-sm font-semibold text-gray-700 mb-2 text-center"
+            className="mb-2 block text-center text-sm font-semibold text-gray-700"
           >
             Shelf price
           </label>
 
-          <div className="relative max-w-44 mx-auto">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-xl font-bold">
+          <div className="relative mx-auto max-w-44">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-bold text-gray-500">
               €
             </span>
-
             <input
               id="product-price"
               type="text"
@@ -1549,81 +979,47 @@ function ProductConfirmationPage({
               onChange={handlePriceChange}
               disabled={savingProduct}
               placeholder="0.00"
-              className="w-full border border-gray-300 rounded-xl py-3 pl-10 pr-4 text-xl font-bold text-center text-green-700 outline-none focus:border-green-600 disabled:opacity-60"
+              className="w-full rounded-xl border border-gray-300 py-3 pl-10 pr-4 text-center text-xl font-bold text-green-700 outline-none focus:border-green-600 disabled:opacity-60"
             />
           </div>
 
-          <p className="text-xs text-gray-500 text-center mt-2">
-            Confirm the price displayed on the
-            shelf
+          <p className="mt-2 text-center text-xs text-gray-500">
+            Confirm the price displayed on the shelf
           </p>
         </div>
 
-        <div className="mt-8">
-          <p className="text-sm font-semibold text-gray-700 mb-3">
-            Quantity
-          </p>
+        <QuantitySelector
+          quantity={quantity}
+          disabled={savingProduct}
+          onDecrease={decreaseQuantity}
+          onIncrease={increaseQuantity}
+        />
 
-          <div className="flex items-center justify-between bg-gray-100 rounded-2xl p-2">
-            <button
-              type="button"
-              onClick={decreaseQuantity}
-              disabled={savingProduct}
-              aria-label="Decrease quantity"
-              className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm disabled:opacity-50"
-            >
-              <Minus size={22} />
-            </button>
-
-            <span className="text-2xl font-bold text-gray-800">
-              {quantity}
-            </span>
-
-            <button
-              type="button"
-              onClick={increaseQuantity}
-              disabled={savingProduct}
-              aria-label="Increase quantity"
-              className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm disabled:opacity-50"
-            >
-              <Plus size={22} />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex justify-between items-center mt-6 py-4 border-y border-gray-100">
-          <span className="font-semibold text-gray-600">
-            Subtotal
-          </span>
-
+        <div className="mt-6 flex items-center justify-between border-y border-gray-100 py-4">
+          <span className="font-semibold text-gray-600">Subtotal</span>
           <span className="text-2xl font-bold text-gray-900">
             €{subtotal.toFixed(2)}
           </span>
         </div>
 
         {error && (
-          <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-3">
-            <p className="text-sm text-red-700 text-center">
-              {error}
-            </p>
+          <div
+            className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3"
+            role="alert"
+          >
+            <p className="text-center text-sm text-red-700">{error}</p>
           </div>
         )}
 
         <button
           type="button"
           onClick={addProductToCart}
-          disabled={
-            savingProduct ||
-            analysingPhoto
-          }
-          className="w-full mt-6 bg-green-700 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
+          disabled={savingProduct || analysingPhoto}
+          className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-green-700 py-4 font-bold text-white disabled:opacity-60"
         >
           {savingProduct ? (
             <>
-              <Loader2
-                size={20}
-                className="animate-spin"
-              />
+              <Loader2 size={20} className="animate-spin" />
               Saving...
             </>
           ) : (
