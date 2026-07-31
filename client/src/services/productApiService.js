@@ -1,5 +1,4 @@
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || '';
+import { createApiUrl } from '../config/api';
 
 async function readApiResponse(response) {
   const contentType =
@@ -19,9 +18,9 @@ export async function lookupProduct(
   signal,
 ) {
   const response = await fetch(
-    `${API_BASE_URL}/api/products/${encodeURIComponent(
-      barcode,
-    )}`,
+    createApiUrl(
+      `/api/products/${encodeURIComponent(barcode)}`,
+    ),
     {
       method: 'GET',
       signal,
@@ -56,14 +55,14 @@ export async function saveProductViaApi(
   const idToken = await user.getIdToken(true);
 
   console.log('Saving product through backend', {
-    endpoint: `${API_BASE_URL}/api/products`,
+    endpoint: createApiUrl('/api/products'),
     barcode: product.barcode,
     userId: user.uid,
     hasToken: Boolean(idToken),
   });
 
   const response = await fetch(
-    `${API_BASE_URL}/api/products`,
+    createApiUrl('/api/products'),
     {
       method: 'POST',
       headers: {
