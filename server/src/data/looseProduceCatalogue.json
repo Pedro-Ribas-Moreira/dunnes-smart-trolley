@@ -1,0 +1,243 @@
+{
+  "version": 1,
+  "generatedAt": "2026-07-31",
+  "items": [
+    {
+      "dunnesSku": "100855004",
+      "name": "Dunnes Stores Red Pepper",
+      "canonicalName": "red pepper",
+      "category": "vegetable",
+      "subcategory": "peppers",
+      "pricingType": "each",
+      "price": 0.99,
+      "unitLabel": "each",
+      "aliases": [
+        "red pepper",
+        "red bell pepper",
+        "bell pepper red",
+        "sweet red pepper",
+        "capsicum red"
+      ],
+      "visualHints": [
+        "red",
+        "bell-shaped",
+        "green stem"
+      ],
+      "productUrl": "https://www.dunnesstoresgrocery.com/product/dunnes-stores-red-pepper-100855004",
+      "source": "dunnes-curated",
+      "verifiedAt": "2026-07-31"
+    },
+    {
+      "dunnesSku": "100855003",
+      "name": "Dunnes Stores Green Pepper",
+      "canonicalName": "green pepper",
+      "category": "vegetable",
+      "subcategory": "peppers",
+      "pricingType": "each",
+      "price": 0.99,
+      "unitLabel": "each",
+      "aliases": [
+        "green pepper",
+        "green bell pepper",
+        "bell pepper green",
+        "capsicum green"
+      ],
+      "visualHints": [
+        "green",
+        "bell-shaped",
+        "green stem"
+      ],
+      "productUrl": "https://www.dunnesstoresgrocery.com/product/dunnes-stores-green-pepper-id-100855003",
+      "source": "dunnes-curated",
+      "verifiedAt": "2026-07-31"
+    },
+    {
+      "dunnesSku": "100868168",
+      "name": "Dunnes Stores Orange Pepper",
+      "canonicalName": "orange pepper",
+      "category": "vegetable",
+      "subcategory": "peppers",
+      "pricingType": "each",
+      "price": 0.99,
+      "unitLabel": "each",
+      "aliases": [
+        "orange pepper",
+        "orange bell pepper",
+        "bell pepper orange",
+        "capsicum orange"
+      ],
+      "visualHints": [
+        "orange",
+        "bell-shaped",
+        "green stem"
+      ],
+      "productUrl": "https://www.dunnesstoresgrocery.com/product/dunnes-stores-orange-pepper-100868168",
+      "source": "dunnes-curated",
+      "verifiedAt": "2026-07-31"
+    },
+    {
+      "dunnesSku": "100262329",
+      "name": "Dunnes Stores Loose Courgette",
+      "canonicalName": "courgette",
+      "category": "vegetable",
+      "subcategory": "aubergines-and-courgettes",
+      "pricingType": "each",
+      "price": 0.69,
+      "unitLabel": "each",
+      "aliases": [
+        "courgette",
+        "zucchini",
+        "green courgette",
+        "green zucchini"
+      ],
+      "visualHints": [
+        "long",
+        "dark green",
+        "smooth skin"
+      ],
+      "productUrl": "https://www.dunnesstoresgrocery.com/product/dunnes-stores-loose-courgette-id-100262329",
+      "source": "dunnes-curated",
+      "verifiedAt": "2026-07-31"
+    },
+    {
+      "dunnesSku": "100676119",
+      "name": "Dunnes Stores Loose Aubergine",
+      "canonicalName": "aubergine",
+      "category": "vegetable",
+      "subcategory": "aubergines-and-courgettes",
+      "pricingType": "each",
+      "price": 0.85,
+      "unitLabel": "each",
+      "aliases": [
+        "aubergine",
+        "eggplant",
+        "purple aubergine",
+        "purple eggplant"
+      ],
+      "visualHints": [
+        "purple",
+        "oval",
+        "green cap"
+      ],
+      "productUrl": "https://www.dunnesstoresgrocery.com/product/dunnes-stores-loose-aubergine-id-100676119",
+      "source": "dunnes-curated",
+      "verifiedAt": "2026-07-31"
+    },
+    {
+      "dunnesSku": "100819528",
+      "name": "Dunnes Stores Loose Sweetcorn",
+      "canonicalName": "sweetcorn",
+      "category": "vegetable",
+      "subcategory": "corn",
+      "pricingType": "each",
+      "price": 0.49,
+      "unitLabel": "each",
+      "aliases": [
+        "sweetcorn",
+        "corn on the cob",
+        "corn cob",
+        "maize cob"
+      ],
+      "visualHints": [
+        "yellow kernels",
+        "green husk",
+        "cob shape"
+      ],
+      "productUrl": "https://www.dunnesstoresgrocery.com/product/dunnes-stores-loose-sweetcorn-id-100819528",
+      "source": "dunnes-curated",
+      "verifiedAt": "2026-07-31"
+    },
+    {
+      "dunnesSku": "100733800",
+      "name": "Dunnes Stores Loose Sweet Potato",
+      "canonicalName": "sweet potato",
+      "category": "vegetable",
+      "subcategory": "potatoes",
+      "pricingType": "each",
+      "price": 0.79,
+      "unitLabel": "each",
+      "aliases": [
+        "sweet potato",
+        "yam",
+        "orange sweet potato"
+      ],
+      "visualHints": [
+        "brown-red skin",
+        "elongated",
+        "tapered ends"
+      ],
+      "productUrl": "https://www.dunnesstoresgrocery.com/product/dunnes-stores-loose-sweet-potato-100733800",
+      "source": "dunnes-curated",
+      "verifiedAt": "2026-07-31"
+    },
+    {
+      "dunnesSku": "100748193",
+      "name": "Dunnes Stores Grapefruit Loose 1'S",
+      "canonicalName": "grapefruit",
+      "category": "fruit",
+      "subcategory": "citrus",
+      "pricingType": "each",
+      "price": 0.49,
+      "unitLabel": "each",
+      "aliases": [
+        "grapefruit",
+        "pink grapefruit",
+        "loose grapefruit"
+      ],
+      "visualHints": [
+        "large citrus",
+        "yellow-orange skin",
+        "round"
+      ],
+      "productUrl": "https://www.dunnesstoresgrocery.com/product/dunnes-stores-grapefruit-loose-1s-id-100748193",
+      "source": "dunnes-curated",
+      "verifiedAt": "2026-07-31"
+    },
+    {
+      "dunnesSku": "100680180",
+      "name": "Dunnes Stores Loose Lime",
+      "canonicalName": "lime",
+      "category": "fruit",
+      "subcategory": "citrus",
+      "pricingType": "each",
+      "price": 0.49,
+      "unitLabel": "each",
+      "aliases": [
+        "lime",
+        "green lime",
+        "loose lime"
+      ],
+      "visualHints": [
+        "small citrus",
+        "green skin",
+        "round or oval"
+      ],
+      "productUrl": "https://www.dunnesstoresgrocery.com/product/dunnes-stores-lime-id-100680180",
+      "source": "dunnes-curated",
+      "verifiedAt": "2026-07-31"
+    },
+    {
+      "dunnesSku": "100747835",
+      "name": "Dunnes Stores Lemon",
+      "canonicalName": "lemon",
+      "category": "fruit",
+      "subcategory": "citrus",
+      "pricingType": "each",
+      "price": 0.49,
+      "unitLabel": "each",
+      "aliases": [
+        "lemon",
+        "yellow lemon",
+        "loose lemon"
+      ],
+      "visualHints": [
+        "yellow",
+        "oval citrus",
+        "pointed ends"
+      ],
+      "productUrl": "https://www.dunnesstoresgrocery.com/product/dunnes-stores-lemon-id-100747835",
+      "source": "dunnes-curated",
+      "verifiedAt": "2026-07-31"
+    }
+  ]
+}

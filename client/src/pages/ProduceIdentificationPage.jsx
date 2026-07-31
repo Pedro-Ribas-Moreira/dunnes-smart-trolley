@@ -157,7 +157,7 @@ function ProduceIdentificationPage({ user, onCancel, onProductAdded }) {
           recognitionName: recognition?.itemName || '',
           recognitionConfidence: Number(recognition?.confidence || 0),
           source: 'produce-photo-ai',
-          originalSource: 'dunnes-live-search',
+          originalSource: 'dunnes-curated',
           promotions,
           hasPromotion: promotions.length > 0,
           updatedAt: serverTimestamp(),
@@ -227,7 +227,7 @@ function ProduceIdentificationPage({ user, onCancel, onProductAdded }) {
             {analysing && (
               <div className="mt-5 flex flex-col items-center" role="status">
                 <Loader2 size={34} className="animate-spin text-green-700" />
-                <p className="mt-3 font-semibold text-gray-700">Identifying item and searching Dunnes...</p>
+                <p className="mt-3 font-semibold text-gray-700">Identifying item from the curated Dunnes catalogue...</p>
               </div>
             )}
 

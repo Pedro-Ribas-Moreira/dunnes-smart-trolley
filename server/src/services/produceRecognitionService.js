@@ -1,16 +1,10 @@
 import OpenAI from 'openai';
 
-import { searchLiveDunnesProducts } from './dunnesLiveSearchService.js';
-import { rankDunnesCandidates } from './productMatchingAgentService.js';
-import { searchDunnesProduceWebsite } from './produceWebsiteSearchAgentService.js';
+import { getLooseProduceCatalogue } from './looseProduceCatalogueService.js';
 
-const WEBSITE_SEARCH_TIMEOUT_MS = Number(
-  process.env.PRODUCE_WEBSITE_SEARCH_TIMEOUT_MS || 12000,
-);
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
 const recognitionSchema = {
   type: 'object',
@@ -18,23 +12,25 @@ const recognitionSchema = {
   required: [
     'recognised',
     'itemName',
-    'variety',
     'category',
     'confidence',
+    'matchedSku',
     'needsBetterPhoto',
     'message',
+    'reason',
   ],
   properties: {
     recognised: { type: 'boolean' },
     itemName: { type: 'string' },
-    variety: { type: 'string' },
     category: {
       type: 'string',
       enum: ['fruit', 'vegetable', 'herb', 'unknown'],
     },
     confidence: { type: 'number' },
+    matchedSku: { type: 'string' },
     needsBetterPhoto: { type: 'boolean' },
     message: { type: 'string' },
+    reason: { type: 'string' },
   },
 };
 
@@ -42,8 +38,35 @@ function cleanText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
-async function recogniseProduce(imageBuffer, mimeType) {
-  if (!process.env.OPENAI_API_KEY) {
+function createCataloguePrompt(catalogue) {
+  const options = catalogue.map((item) => ({
+    sku: item.dunnesSku,
+    name: item.name,
+    canonicalName: item.canonicalName,
+    category: item.category,
+    aliases: item.aliases,
+    visualHints: item.visualHints,
+  }));
+
+  return `
+Identify the single loose fruit, vegetable or herb in the image and match it to the curated Dunnes catalogue below.
+
+Curated catalogue:
+${JSON.stringify(options)}
+
+Rules:
+1. matchedSku must be one of the supplied catalogue SKUs or an empty string.
+2. Never invent a SKU or product.
+3. Use aliases and visual hints when names differ, for example bell pepper and red pepper.
+4. Select a SKU only when the visible colour, shape and item type agree with the catalogue entry.
+5. If the image is blurry, dark, obstructed, too distant, contains several different items, or is not loose produce, set needsBetterPhoto to true.
+6. If the item is clear but is not represented in the curated catalogue, set recognised to true, matchedSku to an empty string and explain that no curated match is available.
+7. Confidence must be between 0 and 1.
+`.trim();
+}
+
+async function recogniseFromCatalogue(imageBuffer, mimeType, catalogue) {
+  if (!openai) {
     const error = new Error('The OpenAI API key is not configured.');
     error.statusCode = 503;
     throw error;
@@ -58,41 +81,31 @@ async function recogniseProduce(imageBuffer, mimeType) {
       {
         role: 'user',
         content: [
-          {
-            type: 'input_text',
-            text:
-              'Identify the loose fruit, vegetable or herb in this image. ' +
-              'Only identify what is clearly visible. If the image is blurry, dark, too distant, obstructed, contains several different items, or is not loose produce, set needsBetterPhoto to true. ' +
-              'Use a simple grocery name such as banana, red onion, avocado or broccoli. Do not invent a variety.',
-          },
-          {
-            type: 'input_image',
-            image_url: imageDataUrl,
-            detail: 'high',
-          },
+          { type: 'input_text', text: createCataloguePrompt(catalogue) },
+          { type: 'input_image', image_url: imageDataUrl, detail: 'high' },
         ],
       },
     ],
     text: {
       format: {
         type: 'json_schema',
-        name: 'loose_produce_recognition',
+        name: 'curated_loose_produce_match',
         strict: true,
         schema: recognitionSchema,
       },
     },
   });
 
-  let result;
-
   try {
-    result = JSON.parse(response.output_text);
+    return JSON.parse(response.output_text);
   } catch {
     const error = new Error('The produce photo could not be understood.');
     error.statusCode = 502;
     throw error;
   }
+}
 
+function createRecognition(result, matchedProduct) {
   const confidence = Math.max(0, Math.min(1, Number(result.confidence || 0)));
   const itemName = cleanText(result.itemName);
   const recognised = Boolean(result.recognised && itemName && confidence >= 0.55);
@@ -101,131 +114,63 @@ async function recogniseProduce(imageBuffer, mimeType) {
   return {
     recognised,
     itemName: recognised ? itemName : '',
-    variety: recognised ? cleanText(result.variety) : '',
+    variety: '',
     category: cleanText(result.category) || 'unknown',
     confidence,
+    matchedSku: matchedProduct?.dunnesSku || '',
     needsBetterPhoto,
+    reason: cleanText(result.reason),
     message:
       cleanText(result.message) ||
       (needsBetterPhoto
         ? 'Take another photo with one item centred in good lighting.'
-        : ''),
+        : matchedProduct
+          ? ''
+          : 'The item was recognised, but it is not in the curated Dunnes catalogue yet.'),
   };
 }
 
-function createSearchProduct(recognition) {
-  const name = [recognition.variety, recognition.itemName]
-    .filter(Boolean)
-    .join(' ')
-    .trim();
-
+function createCandidate(product, confidence, reason) {
   return {
-    barcode: '',
-    name,
-    genericName: recognition.itemName,
-    brand: '',
-    quantity: 'loose',
-    categories: [recognition.category, 'fresh produce', 'loose'],
-    source: 'produce-photo',
+    ...product,
+    confidence,
+    score: confidence,
+    matchMethod: 'curated-produce-vision',
+    matchReason: reason,
+    candidateSource: 'curated-loose-produce',
+    productType: 'loose-produce',
+    promotions: Array.isArray(product.promotions) ? product.promotions : [],
+    hasPromotion: Array.isArray(product.promotions) && product.promotions.length > 0,
   };
-}
-
-function mergeCandidates(...candidateGroups) {
-  const candidatesBySku = new Map();
-
-  candidateGroups.flat().forEach((candidate) => {
-    const sku = String(candidate?.dunnesSku || '').trim();
-
-    if (!sku) {
-      return;
-    }
-
-    candidatesBySku.set(sku, {
-      ...candidatesBySku.get(sku),
-      ...candidate,
-    });
-  });
-
-  return [...candidatesBySku.values()];
-}
-
-async function searchForProduce(externalProduct, recognition) {
-  const websiteSearchController = new AbortController();
-  const timeoutId = setTimeout(
-    () => websiteSearchController.abort(),
-    WEBSITE_SEARCH_TIMEOUT_MS,
-  );
-
-  try {
-    const [catalogueResult, websiteResult] = await Promise.allSettled([
-      searchLiveDunnesProducts(externalProduct),
-      searchDunnesProduceWebsite(recognition, undefined, {
-        signal: websiteSearchController.signal,
-      }),
-    ]);
-
-    const catalogueCandidates =
-      catalogueResult.status === 'fulfilled' ? catalogueResult.value : [];
-
-    const websiteCandidates =
-      websiteResult.status === 'fulfilled' ? websiteResult.value : [];
-
-    if (catalogueResult.status === 'rejected') {
-      console.warn('Normal Dunnes produce search failed:', {
-        itemName: recognition.itemName,
-        message: catalogueResult.reason?.message,
-      });
-    }
-
-    if (websiteResult.status === 'rejected' && !websiteSearchController.signal.aborted) {
-      console.warn('Produce website search failed:', {
-        itemName: recognition.itemName,
-        message: websiteResult.reason?.message,
-      });
-    }
-
-    return mergeCandidates(catalogueCandidates, websiteCandidates);
-  } finally {
-    clearTimeout(timeoutId);
-  }
 }
 
 export async function identifyLooseProduce({ imageBuffer, mimeType }) {
-  const recognition = await recogniseProduce(imageBuffer, mimeType);
+  const catalogue = await getLooseProduceCatalogue();
 
-  if (recognition.needsBetterPhoto) {
-    return {
-      recognition,
-      matches: [],
-    };
+  if (catalogue.length === 0) {
+    const error = new Error('The loose-produce catalogue is empty.');
+    error.statusCode = 503;
+    throw error;
   }
 
-  const externalProduct = createSearchProduct(recognition);
-  const candidates = await searchForProduce(externalProduct, recognition);
-
-  if (candidates.length === 0) {
-    return {
-      recognition,
-      matches: [],
-    };
-  }
-
-  const ranking = await rankDunnesCandidates({
-    externalProduct,
-    candidates,
-  });
-
-  const candidateBySku = new Map(
-    candidates.map((candidate) => [String(candidate.dunnesSku), candidate]),
+  const result = await recogniseFromCatalogue(imageBuffer, mimeType, catalogue);
+  const matchedProduct = catalogue.find(
+    (item) => item.dunnesSku === String(result.matchedSku || '').trim(),
   );
+  const recognition = createRecognition(result, matchedProduct);
 
-  const matches = ranking.matches.map((match) => ({
-    ...candidateBySku.get(match.dunnesSku),
-    ...match,
-  }));
+  console.log('Curated loose-produce recognition completed:', {
+    itemName: recognition.itemName,
+    matchedSku: recognition.matchedSku,
+    confidence: recognition.confidence,
+    catalogueSize: catalogue.length,
+  });
 
   return {
     recognition,
-    matches,
+    matches:
+      matchedProduct && !recognition.needsBetterPhoto
+        ? [createCandidate(matchedProduct, recognition.confidence, recognition.reason)]
+        : [],
   };
 }
