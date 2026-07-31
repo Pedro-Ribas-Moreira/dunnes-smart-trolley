@@ -5,6 +5,10 @@ import {
 } from '../middleware/authenticateUser.js';
 
 import {
+  importDunnesListing,
+} from '../services/dunnesImportService.js';
+
+import {
   getDunnesProductBySku,
 } from '../services/dunnesStorefrontService.js';
 
@@ -18,6 +22,12 @@ function isValidSku(value) {
 
 function isValidStoreId(value) {
   return /^\d{1,10}$/.test(
+    String(value || '').trim(),
+  );
+}
+
+function isValidListingId(value) {
+  return /^[a-zA-Z0-9-]{10,100}$/.test(
     String(value || '').trim(),
   );
 }
@@ -91,6 +101,67 @@ router.get(
           error:
             error.message ||
             'The Dunnes product service is unavailable.',
+        });
+    }
+  },
+);
+
+router.post(
+  '/import-listing',
+  authenticateUser,
+  async (request, response) => {
+    const listingId = String(
+      request.body?.listingId || '',
+    ).trim();
+
+    const storeId = String(
+      request.body?.storeId || '258',
+    ).trim();
+
+    if (!isValidListingId(listingId)) {
+      return response.status(400).json({
+        success: false,
+        error:
+          'A valid Dunnes listing ID is required.',
+      });
+    }
+
+    if (!isValidStoreId(storeId)) {
+      return response.status(400).json({
+        success: false,
+        error:
+          'A valid Dunnes store ID is required.',
+      });
+    }
+
+    try {
+      const result =
+        await importDunnesListing({
+          listingId,
+          storeId,
+        });
+
+      return response.status(201).json({
+        success: true,
+        import: result,
+      });
+    } catch (error) {
+      console.error(
+        'Dunnes listing import failed:',
+        {
+          listingId,
+          storeId,
+          message: error.message,
+        },
+      );
+
+      return response
+        .status(error.statusCode || 500)
+        .json({
+          success: false,
+          error:
+            error.message ||
+            'The Dunnes listing could not be imported.',
         });
     }
   },
