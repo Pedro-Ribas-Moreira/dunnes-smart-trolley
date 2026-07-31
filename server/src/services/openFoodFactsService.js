@@ -36,6 +36,7 @@ export async function findOpenFoodFactsProduct(barcode) {
       data.product.product_name?.trim() ||
       data.product.product_name_en?.trim() ||
       data.product.generic_name?.trim() ||
+      data.product.generic_name_en?.trim() ||
       '';
 
     if (!productName) {
@@ -46,6 +47,18 @@ export async function findOpenFoodFactsProduct(barcode) {
       barcode,
       name: productName,
       brand: data.product.brands || '',
+      quantity: data.product.quantity || '',
+      categories: Array.isArray(data.product.categories_tags)
+        ? data.product.categories_tags.map((category) =>
+            String(category || '').replace(/^en:/, ''),
+          )
+        : typeof data.product.categories === 'string'
+        ? data.product.categories.split(',').map((category) => category.trim())
+        : [],
+      genericName:
+        data.product.generic_name ||
+        data.product.generic_name_en ||
+        '',
       imageUrl:
         data.product.image_front_small_url ||
         data.product.image_url ||

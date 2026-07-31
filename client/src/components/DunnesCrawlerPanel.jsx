@@ -12,9 +12,14 @@ import {
 } from '../services/dunnesApiService';
 
 const seedSkus = [
+  '100261196',
+  '100261217',
   '100318450',
-  '100332661',
-  '100172239',
+  '100298010',
+  '100281697',
+  '100330895'
+
+
 ];
 
 function DunnesCrawlerPanel({

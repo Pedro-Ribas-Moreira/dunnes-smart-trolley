@@ -13,6 +13,14 @@ import {
   saveCatalogueProduct,
 } from '../services/productCatalogueService.js';
 
+import {
+  findDunnesCandidates,
+} from '../services/dunnesCatalogueMatchService.js';
+
+import {
+  rankDunnesCandidates,
+} from '../services/productMatchingAgentService.js';
+
 const router = express.Router();
 
 function cleanBarcode(value) {
@@ -58,6 +66,18 @@ function validateProduct(requestBody) {
     requestBody.source || 'manual',
   ).trim();
 
+  const dunnesSku = String(
+    requestBody.dunnesSku || '',
+  ).trim();
+
+  const matchMethod = String(
+    requestBody.matchMethod || '',
+  ).trim();
+
+  const matchConfidence = Number(
+    requestBody.matchConfidence,
+  );
+
   const price = parsePrice(
     requestBody.price,
   );
@@ -90,7 +110,22 @@ function validateProduct(requestBody) {
       'The product price must be greater than zero.',
     );
   }
+  if (dunnesSku && !/^\d{6,15}$/.test(dunnesSku)) {
+    errors.push(
+      'The Dunnes SKU must be a numeric SKU between 6 and 15 digits.',
+    );
+  }
 
+  if (
+    requestBody.matchConfidence != null &&
+    (!Number.isFinite(matchConfidence) ||
+      matchConfidence < 0 ||
+      matchConfidence > 1)
+  ) {
+    errors.push(
+      'matchConfidence must be a number between 0 and 1.',
+    );
+  }
   if (price > 10000) {
     errors.push(
       'The product price is too high.',
@@ -107,6 +142,9 @@ function validateProduct(requestBody) {
       price,
       source,
       originalSource: source,
+      dunnesSku,
+      matchMethod,
+      matchConfidence,
     },
   };
 }
@@ -155,12 +193,28 @@ router.get(
         });
       }
 
+      const dunnesCandidates =
+        await findDunnesCandidates(
+          openFoodFactsProduct,
+        );
+
+      const rankedCandidates =
+        await rankDunnesCandidates({
+          externalProduct:
+            openFoodFactsProduct,
+          candidates: dunnesCandidates,
+        });
+
       return response.json({
         success: true,
         found: true,
         source: 'open-food-facts',
         product: openFoodFactsProduct,
         manualEntryRequired: false,
+        confirmationRequired: true,
+        dunnesCandidates: rankedCandidates.matches,
+        noReliableMatch:
+          rankedCandidates.noReliableMatch,
       });
     } catch (error) {
       console.error(

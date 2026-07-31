@@ -96,6 +96,9 @@ function ProductConfirmationPage({
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
+  const [dunnesCandidates, setDunnesCandidates] =
+    useState([]);
+
   const [loadingProduct, setLoadingProduct] =
     useState(true);
 
@@ -144,6 +147,7 @@ function ProductConfirmationPage({
       setLookupSource('');
       setNotice('');
       setError('');
+      setDunnesCandidates([]);
       setPhotoFile(null);
       setPhotoPreviewUrl('');
       setPhotoLabel(null);
@@ -199,11 +203,33 @@ function ProductConfirmationPage({
               '',
           );
 
+          const candidates =
+            Array.isArray(
+              lookupResult.dunnesCandidates,
+            )
+              ? lookupResult.dunnesCandidates
+              : [];
+
+          setDunnesCandidates(candidates);
+
           if (
             lookupResult.source === 'firebase'
           ) {
             setNotice(
               'Saved product found. Confirm that the shelf price is still correct.',
+            );
+          } else if (
+            candidates.length > 0 &&
+            !lookupResult.noReliableMatch
+          ) {
+            setNotice(
+              'We found likely Dunnes matches for this product. Select the best one, or continue with manual entry.',
+            );
+          } else if (
+            lookupResult.noReliableMatch
+          ) {
+            setNotice(
+              'We could not identify a reliable Dunnes match. Please confirm the product manually.',
             );
           } else {
             setNotice(
@@ -221,6 +247,10 @@ function ProductConfirmationPage({
                 lookupResult.source,
               price:
                 foundProduct.price,
+              dunnesCandidates:
+                candidates.length,
+              noReliableMatch:
+                lookupResult.noReliableMatch,
             },
           );
 
@@ -601,6 +631,7 @@ function ProductConfirmationPage({
 
     setPrice('');
     setLookupSource('manual');
+    setDunnesCandidates([]);
 
     setNotice(
       'Enter or correct the product details and shelf price manually.',
@@ -616,6 +647,7 @@ function ProductConfirmationPage({
 
     setPrice('');
     setLookupSource('manual');
+    setDunnesCandidates([]);
 
     setNotice(
       'Select another suggested product, take a new photo or enter the details manually.',
@@ -686,6 +718,17 @@ function ProductConfirmationPage({
       price: numericPrice,
       source: originalSource,
       originalSource,
+      matchMethod:
+        product.matchMethod ||
+        (product.dunnesSku
+          ? 'open-food-facts-ai'
+          : 'open-food-facts'),
+      matchConfidence:
+        Number.isFinite(product.matchConfidence)
+          ? Number(product.matchConfidence)
+          : product.dunnesSku
+          ? 0.0
+          : null,
     };
 
     setSavingProduct(true);
@@ -1094,6 +1137,155 @@ function ProductConfirmationPage({
                 <button
                   type="button"
                   onClick={returnToManualEntry}
+                  className="w-full mt-4 border border-gray-300 text-gray-700 font-semibold py-3 rounded-xl"
+                >
+                  None of these, enter manually
+                </button>
+              </div>
+            )}
+
+            {dunnesCandidates.length > 0 && lookupSource !== 'manual' && (
+              <div className="mt-5">
+                <h2 className="text-lg font-bold text-gray-800">
+                  Dunnes candidate matches
+                </h2>
+
+                <p className="text-sm text-gray-500 mt-1">
+                  Choose the best Dunnes product candidate, or continue with manual entry.
+                </p>
+
+                <div className="mt-4 space-y-3">
+                  {dunnesCandidates.map((candidate) => {
+                    const percentage =
+                      formatMatchPercentage(
+                        candidate.confidence || candidate.score,
+                      );
+
+                    return (
+                      <button
+                        key={candidate.dunnesSku}
+                        type="button"
+                        onClick={() => {
+                          setProduct({
+                            barcode,
+                            dunnesSku:
+                              candidate.dunnesSku || '',
+                            name:
+                              candidate.name || '',
+                            brand:
+                              candidate.brand || '',
+                            imageUrl:
+                              candidate.imageUrl || '',
+                            price:
+                              Number.isFinite(
+                                Number(candidate.price),
+                              )
+                                ? Number(candidate.price)
+                                : null,
+                            source:
+                              'open-food-facts-ai',
+                            originalSource:
+                              'open-food-facts',
+                            matchMethod:
+                              'open-food-facts-ai',
+                            matchConfidence:
+                              Number.isFinite(
+                                Number(candidate.confidence),
+                              )
+                                ? Number(
+                                    candidate.confidence,
+                                  )
+                                : null,
+                          });
+
+                          setPrice(
+                            Number.isFinite(
+                              Number(candidate.price),
+                            ) &&
+                              Number(candidate.price) >
+                                0
+                              ? Number(
+                                  candidate.price,
+                                ).toFixed(2)
+                              : '',
+                          );
+
+                          setLookupSource(
+                            'dunnes-candidate-match',
+                          );
+
+                          setNotice(
+                            'Dunnes candidate selected. Confirm the product and shelf price before adding it.',
+                          );
+
+                          setError('');
+                        }}
+                        disabled={savingProduct}
+                        className="w-full border border-gray-200 rounded-2xl p-4 text-left bg-white hover:border-green-600 disabled:opacity-60"
+                      >
+                        <div className="flex gap-4">
+                          {candidate.imageUrl ? (
+                            <img
+                              src={candidate.imageUrl}
+                              alt={candidate.name}
+                              className="w-20 h-20 rounded-xl object-contain bg-gray-50 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-20 h-20 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                              <ImagePlus
+                                size={27}
+                                className="text-gray-400"
+                              />
+                            </div>
+                          )}
+
+                          <div className="flex-1 min-w-0">
+                            {candidate.brand && (
+                              <p className="text-sm text-gray-500">
+                                {candidate.brand}
+                              </p>
+                            )}
+
+                            <h3 className="font-bold text-gray-800 mt-1">
+                              {candidate.name}
+                            </h3>
+
+                            <div className="flex items-center justify-between gap-3 mt-3">
+                              <span className="font-bold text-green-700">
+                                {Number.isFinite(
+                                  Number(candidate.price),
+                                )
+                                  ? `€${Number(
+                                      candidate.price,
+                                    ).toFixed(2)}`
+                                  : 'Price unavailable'}
+                              </span>
+
+                              {percentage !== null && (
+                                <span className="text-xs font-semibold bg-green-100 text-green-700 rounded-full px-3 py-1">
+                                  {percentage}% match
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="text-xs text-gray-400 mt-2">
+                              Dunnes SKU: {candidate.dunnesSku}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-center gap-2 bg-green-700 text-white font-bold py-2.5 rounded-xl">
+                          <Check size={18} />
+                          Use this candidate
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={changeSelectedMatch}
                   className="w-full mt-4 border border-gray-300 text-gray-700 font-semibold py-3 rounded-xl"
                 >
                   None of these, enter manually

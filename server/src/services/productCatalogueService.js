@@ -38,6 +38,11 @@ export async function findSavedProduct(barcode) {
     brand: data.brand || '',
     imageUrl: data.imageUrl || '',
     price: parseSavedPrice(data.price),
+    dunnesSku: data.dunnesSku || '',
+    matchMethod: data.matchMethod || '',
+    matchConfidence: Number.isFinite(Number(data.matchConfidence))
+      ? Number(data.matchConfidence)
+      : null,
     source: 'firebase',
     originalSource:
       data.originalSource ||
@@ -62,6 +67,11 @@ export async function saveCatalogueProduct(
     brand: product.brand || '',
     imageUrl: product.imageUrl || '',
     price: Number(product.price),
+    dunnesSku: String(product.dunnesSku || '').trim(),
+    matchMethod: String(product.matchMethod || '').trim(),
+    matchConfidence: Number.isFinite(Number(product.matchConfidence))
+      ? Number(product.matchConfidence)
+      : null,
     originalSource:
       product.originalSource ||
       product.source ||
@@ -90,6 +100,11 @@ export async function saveCatalogueProduct(
     brand: product.brand || '',
     imageUrl: product.imageUrl || '',
     price: Number(product.price),
+    dunnesSku: String(documentData.dunnesSku || ''),
+    matchMethod: String(documentData.matchMethod || ''),
+    matchConfidence: Number.isFinite(documentData.matchConfidence)
+      ? Number(documentData.matchConfidence)
+      : null,
     source: 'firebase',
     originalSource:
       documentData.originalSource,
