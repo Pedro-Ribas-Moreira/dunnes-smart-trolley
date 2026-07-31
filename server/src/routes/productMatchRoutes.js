@@ -9,6 +9,8 @@ import {
   matchProductPhoto,
 } from '../services/productPhotoMatchService.js';
 
+import { identifyLooseProduce } from '../services/produceRecognitionService.js';
+
 const router = express.Router();
 
 const allowedMimeTypes = new Set([
@@ -113,6 +115,46 @@ router.post(
             error.message ||
             'The product photo could not be analysed.',
         });
+    }
+  },
+);
+
+
+router.post(
+  '/produce',
+  authenticateUser,
+  upload.single('image'),
+  async (request, response) => {
+    if (!request.file) {
+      return response.status(400).json({
+        success: false,
+        error: 'A produce photo is required.',
+      });
+    }
+
+    try {
+      const result = await identifyLooseProduce({
+        imageBuffer: request.file.buffer,
+        mimeType: request.file.mimetype,
+      });
+
+      return response.json({
+        success: true,
+        recognition: result.recognition,
+        matches: result.matches,
+      });
+    } catch (error) {
+      console.error('Loose produce recognition failed:', {
+        message: error.message,
+        userId: request.user?.uid || null,
+        mimeType: request.file?.mimetype,
+        size: request.file?.size,
+      });
+
+      return response.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'The produce photo could not be analysed.',
+      });
     }
   },
 );

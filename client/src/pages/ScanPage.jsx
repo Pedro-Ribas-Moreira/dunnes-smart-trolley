@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 
 import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 
-import { Keyboard, Loader2, ScanLine, Search } from 'lucide-react';
+import { Camera, Keyboard, Loader2, ScanLine, Search } from 'lucide-react';
 
 import { mobileLog } from '../lib/mobileLog';
 
@@ -31,7 +31,7 @@ function calculateQrbox(viewfinderWidth, viewfinderHeight) {
   };
 }
 
-function ScanPage({ user, active, onBarcodeScanned }) {
+function ScanPage({ user, active, onBarcodeScanned, onLooseItem }) {
   const [cameraError, setCameraError] = useState('');
 
   const [manualBarcode, setManualBarcode] = useState('');
@@ -263,6 +263,25 @@ function ScanPage({ user, active, onBarcodeScanned }) {
           The product will open automatically when the barcode is detected.
         </p>
       )}
+
+      <div className='mt-6 rounded-2xl border border-green-200 bg-green-50 p-4'>
+        <div className='flex items-start gap-3'>
+          <Camera size={22} className='mt-0.5 shrink-0 text-green-700' />
+          <div>
+            <h3 className='font-bold text-gray-800'>No barcode?</h3>
+            <p className='mt-1 text-sm text-gray-600'>Take a photo of loose fruit or vegetables and let AI identify the item.</p>
+          </div>
+        </div>
+        <button
+          type='button'
+          onClick={onLooseItem}
+          disabled={isProcessing}
+          className='mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-green-700 py-3 font-bold text-white disabled:opacity-50'
+        >
+          <Camera size={20} />
+          Photograph loose item
+        </button>
+      </div>
 
       <div className='mt-6 border-t border-gray-200 pt-6'>
         {!showManualEntry ? (

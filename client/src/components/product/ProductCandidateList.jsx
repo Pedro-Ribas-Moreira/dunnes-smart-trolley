@@ -15,6 +15,7 @@ function ProductCandidateList({
   disabled,
   onSelect,
   onManualEntry,
+  manualEntryLabel = 'None of these, enter manually',
 }) {
   if (!candidates.length) {
     return null;
@@ -119,7 +120,7 @@ function ProductCandidateList({
         onClick={onManualEntry}
         className="mt-4 w-full rounded-xl border border-gray-300 bg-white py-3 font-semibold text-gray-700"
       >
-        None of these, enter manually
+        {manualEntryLabel}
       </button>
     </section>
   );

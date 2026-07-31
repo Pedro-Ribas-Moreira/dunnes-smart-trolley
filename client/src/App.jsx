@@ -26,6 +26,7 @@ import { auth, db } from './Firebase';
 import CartPage from './pages/CartPage';
 import AuthPage from './pages/AuthPage';
 import ProductConfirmationPage from './pages/ProductConfirmationPage';
+import ProduceIdentificationPage from './pages/ProduceIdentificationPage';
 import ProfilePage from './pages/ProfilePage';
 import ScanPage from './pages/ScanPage';
 
@@ -190,6 +191,11 @@ export default function App() {
       setActiveTab('confirm');
     }, []);
 
+  const openLooseItem = useCallback(() => {
+    setPendingBarcode('');
+    setActiveTab('produce');
+  }, []);
+
   const returnToScanner =
     useCallback(() => {
       setPendingBarcode('');
@@ -331,6 +337,15 @@ export default function App() {
               onBarcodeScanned={
                 handleBarcodeScanned
               }
+              onLooseItem={openLooseItem}
+            />
+          )}
+
+          {activeTab === 'produce' && (
+            <ProduceIdentificationPage
+              user={user}
+              onCancel={returnToScanner}
+              onProductAdded={openCartAfterAdd}
             />
           )}
 
@@ -363,7 +378,8 @@ export default function App() {
             onClick={openScanTab}
             className={`flex flex-col items-center gap-1 ${
               activeTab === 'scan' ||
-              activeTab === 'confirm'
+              activeTab === 'confirm' ||
+              activeTab === 'produce'
                 ? 'text-green-700'
                 : 'text-gray-400'
             }`}
