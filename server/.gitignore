@@ -2,3 +2,4 @@ server/.env
 *firebase-admin*.json
 *service-account*.json
 *service-account*.json
+.env

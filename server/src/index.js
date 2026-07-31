@@ -2,6 +2,8 @@ import cors from 'cors';
 import express from 'express';
 import dunnesRoutes from './routes/dunnesRoutes.js';
 import productRoutes from './routes/productRoutes.js';
+import productMatchRoutes from './routes/productMatchRoutes.js';
+
 import shoppingSessionRoutes from './routes/shoppingSessionRoutes.js';
 
 const app = express();
@@ -45,7 +47,10 @@ app.get('/api/health', (request, response) => {
   });
 });
 app.use('/api/products', productRoutes);
-
+app.use(
+  '/api/product-matching',
+  productMatchRoutes,
+);
 app.use(
   '/api/shopping-sessions',
   shoppingSessionRoutes,
@@ -60,6 +65,11 @@ app.use((request, response) => {
 });
 
 app.listen(port, () => {
+
+  console.log(
+  'OpenAI configured:',
+  Boolean(process.env.OPENAI_API_KEY),
+);
   console.log(
     `Dunnes Smart Trolley API running on http://localhost:${port}`,
   );

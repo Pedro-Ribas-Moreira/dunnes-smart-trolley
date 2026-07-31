@@ -15,7 +15,21 @@ const PAGE_SIZE = 30;
 const MAX_PAGES = 100;
 
 function parsePrice(value) {
-  const parsedValue = Number(value);
+  if (
+    value === null ||
+    value === undefined ||
+    value === ''
+  ) {
+    return null;
+  }
+
+  const normalizedValue = String(value)
+    .replace(/[^\d.,-]/g, '')
+    .replace(',', '.');
+
+  const parsedValue = Number(
+    normalizedValue,
+  );
 
   return Number.isFinite(parsedValue)
     ? parsedValue
@@ -75,6 +89,18 @@ function normalisePromotion(promotion) {
   };
 }
 
+function getImageUrl(product) {
+  return String(
+    product.primaryImage?.details ||
+      product.primaryImage?.default ||
+      product.primaryImage?.cell ||
+      product.image?.details ||
+      product.image?.default ||
+      product.image?.cell ||
+      '',
+  );
+}
+
 function normaliseListingProduct(
   product,
   storeId,
@@ -96,7 +122,22 @@ function normaliseListingProduct(
     ),
 
     storeId,
-    listingId,
+
+    /*
+     * Keep the latest listing for quick
+     * reference.
+     */
+    lastListingId: listingId,
+
+    /*
+     * A product can appear in several
+     * Dunnes categories. arrayUnion keeps
+     * all listing IDs without duplicates.
+     */
+    listingIds:
+      FieldValue.arrayUnion(
+        listingId,
+      ),
 
     name: String(
       product.name || '',
@@ -107,13 +148,15 @@ function normaliseListingProduct(
     ).trim(),
 
     defaultCategory:
-  typeof product.defaultCategory === 'string'
-    ? product.defaultCategory
-    : String(
-        product.defaultCategory?.name ||
-          product.defaultCategory?.category ||
-          '',
-      ),
+      typeof product.defaultCategory ===
+      'string'
+        ? product.defaultCategory
+        : String(
+            product.defaultCategory?.name ||
+              product.defaultCategory
+                ?.category ||
+              '',
+          ),
 
     categories: Array.isArray(
       product.categories,
@@ -121,7 +164,9 @@ function normaliseListingProduct(
       ? product.categories.map(
           (category) => ({
             id: String(
-              category.categoryId || '',
+              category.categoryId ||
+                category.id ||
+                '',
             ),
 
             retailerId: String(
@@ -129,43 +174,52 @@ function normaliseListingProduct(
             ),
 
             name: String(
-              category.category || '',
+              category.category ||
+                category.name ||
+                '',
             ),
 
             breadcrumb: String(
               category.categoryBreadcrumb ||
+                category.breadcrumb ||
                 '',
             ),
           }),
         )
       : [],
 
-    price: parsePrice(
-      product.priceNumeric,
-    ),
+    price:
+      parsePrice(
+        product.priceNumeric,
+      ) ??
+      parsePrice(
+        product.price,
+      ),
 
     priceText: String(
       product.price || '',
     ),
 
-    wasPrice: parsePrice(
-      product.wasPriceNumeric,
-    ),
+    wasPrice:
+      parsePrice(
+        product.wasPriceNumeric,
+      ) ??
+      parsePrice(
+        product.wasPrice,
+      ),
 
     wasPriceText: String(
       product.wasPrice || '',
     ),
 
     unitPrice: String(
-      product.pricePerUnit || '',
-    ),
-
-    imageUrl: String(
-      product.image?.details ||
-        product.image?.default ||
-        product.image?.cell ||
+      product.pricePerUnit ||
+        product.unitPrice ||
         '',
     ),
+
+    imageUrl:
+      getImageUrl(product),
 
     available:
       product.available !== false,
@@ -248,7 +302,9 @@ async function fetchListingPage({
 
     return response.json();
   } catch (error) {
-    if (error.name === 'AbortError') {
+    if (
+      error.name === 'AbortError'
+    ) {
       const timeoutError =
         new Error(
           'The Dunnes listing request timed out.',
@@ -265,10 +321,16 @@ async function fetchListingPage({
   }
 }
 
-async function saveProducts(
-  products,
-) {
-  if (products.length === 0) {
+async function saveProducts(products) {
+  const validProducts =
+    products.filter(
+      (product) =>
+        Boolean(product.dunnesSku),
+    );
+
+  if (
+    validProducts.length === 0
+  ) {
     return 0;
   }
 
@@ -280,31 +342,50 @@ async function saveProducts(
       .doc(APP_ID)
       .collection('dunnesProducts');
 
-  products.forEach((product) => {
-    if (!product.dunnesSku) {
-      return;
-    }
+  validProducts.forEach(
+    (product) => {
+      const productReference =
+        collectionReference.doc(
+          product.dunnesSku,
+        );
 
-    const productReference =
-      collectionReference.doc(
-        product.dunnesSku,
+      batch.set(
+        productReference,
+        product,
+        {
+          merge: true,
+        },
       );
-
-    batch.set(
-      productReference,
-      product,
-      {
-        merge: true,
-      },
-    );
-  });
+    },
+  );
 
   await batch.commit();
 
-  return products.filter(
-    (product) =>
-      Boolean(product.dunnesSku),
-  ).length;
+  return validProducts.length;
+}
+
+async function saveImportStatus(
+  listingId,
+  data,
+) {
+  const importReference =
+    adminDb
+      .collection('artifacts')
+      .doc(APP_ID)
+      .collection('dunnesImports')
+      .doc(listingId);
+
+  await importReference.set(
+    {
+      listingId,
+      ...data,
+      lastUpdatedAt:
+        FieldValue.serverTimestamp(),
+    },
+    {
+      merge: true,
+    },
+  );
 }
 
 export async function importDunnesListing({
@@ -317,94 +398,264 @@ export async function importDunnesListing({
   let listingName = '';
   let totalAvailable = null;
 
-  while (pageNumber < MAX_PAGES) {
-    const listingResponse =
-      await fetchListingPage({
-        listingId,
-        storeId,
-        skip,
-      });
-
-    const items = Array.isArray(
-      listingResponse.items,
-    )
-      ? listingResponse.items
-      : [];
-
-    listingName =
-      listingResponse.name ||
-      listingName;
-
-    totalAvailable = Number(
-      listingResponse.total || 0,
-    );
-
-    if (items.length === 0) {
-      break;
-    }
-
-    const products = items.map(
-      (product) =>
-        normaliseListingProduct(
-          product,
-          storeId,
-          listingId,
-        ),
-    );
-
-    const savedCount =
-      await saveProducts(products);
-
-    importedCount += savedCount;
-    pageNumber += 1;
-    skip += items.length;
-
-    console.log(
-      `[DUNNES IMPORT] Page ${pageNumber}, saved ${savedCount}, total ${importedCount}`,
-    );
-
-    if (
-      items.length < PAGE_SIZE ||
-      (
-        totalAvailable > 0 &&
-        importedCount >=
-          totalAvailable
-      )
-    ) {
-      break;
-    }
-  }
-
-  const importReference =
-    adminDb
-      .collection('artifacts')
-      .doc(APP_ID)
-      .collection('dunnesImports')
-      .doc(listingId);
-
-  await importReference.set(
+  await saveImportStatus(
+    listingId,
     {
+      storeId,
+      status: 'running',
+      startedAt:
+        FieldValue.serverTimestamp(),
+      error: null,
+    },
+  );
+
+  try {
+    while (
+      pageNumber < MAX_PAGES
+    ) {
+      const listingResponse =
+        await fetchListingPage({
+          listingId,
+          storeId,
+          skip,
+        });
+
+      const items = Array.isArray(
+        listingResponse.items,
+      )
+        ? listingResponse.items
+        : [];
+
+      listingName =
+        listingResponse.name ||
+        listingResponse.title ||
+        listingName;
+
+      const responseTotal = Number(
+        listingResponse.total ??
+          listingResponse.totalItems ??
+          listingResponse.count ??
+          0,
+      );
+
+      if (
+        Number.isFinite(
+          responseTotal,
+        ) &&
+        responseTotal > 0
+      ) {
+        totalAvailable =
+          responseTotal;
+      }
+
+      if (
+        items.length === 0
+      ) {
+        break;
+      }
+
+      const products =
+        items.map(
+          (product) =>
+            normaliseListingProduct(
+              product,
+              storeId,
+              listingId,
+            ),
+        );
+
+      const savedCount =
+        await saveProducts(
+          products,
+        );
+
+      importedCount +=
+        savedCount;
+
+      pageNumber += 1;
+      skip += items.length;
+
+      console.log(
+        `[DUNNES IMPORT] Listing ${listingId}, page ${pageNumber}, saved ${savedCount}, total ${importedCount}`,
+      );
+
+      await saveImportStatus(
+        listingId,
+        {
+          listingName,
+          storeId,
+          importedCount,
+          totalAvailable,
+          pagesProcessed:
+            pageNumber,
+          status: 'running',
+        },
+      );
+
+      if (
+        items.length <
+          PAGE_SIZE ||
+        (
+          totalAvailable !==
+            null &&
+          importedCount >=
+            totalAvailable
+        )
+      ) {
+        break;
+      }
+    }
+
+    const reachedPageLimit =
+      pageNumber >= MAX_PAGES &&
+      (
+        totalAvailable === null ||
+        importedCount <
+          totalAvailable
+      );
+
+    const status =
+      reachedPageLimit
+        ? 'page-limit-reached'
+        : 'completed';
+
+    await saveImportStatus(
+      listingId,
+      {
+        listingName,
+        storeId,
+        importedCount,
+        totalAvailable,
+        pagesProcessed:
+          pageNumber,
+        lastImportedAt:
+          FieldValue.serverTimestamp(),
+        status,
+        error: null,
+      },
+    );
+
+    return {
+      success: true,
       listingId,
       listingName,
       storeId,
       importedCount,
       totalAvailable,
-      pagesProcessed: pageNumber,
-      lastImportedAt:
-        FieldValue.serverTimestamp(),
-      status: 'completed',
-    },
-    {
-      merge: true,
-    },
-  );
+      pagesProcessed:
+        pageNumber,
+      status,
+    };
+  } catch (error) {
+    await saveImportStatus(
+      listingId,
+      {
+        listingName,
+        storeId,
+        importedCount,
+        totalAvailable,
+        pagesProcessed:
+          pageNumber,
+        status: 'failed',
+        error:
+          error.message ||
+          'Unknown import error',
+        failedAt:
+          FieldValue.serverTimestamp(),
+      },
+    );
+
+    throw error;
+  }
+}
+
+export async function importDunnesListings({
+  listingIds,
+  storeId = DEFAULT_STORE_ID,
+}) {
+  const uniqueListingIds = [
+    ...new Set(
+      listingIds.map(
+        (listingId) =>
+          String(
+            listingId || '',
+          ).trim(),
+      ),
+    ),
+  ].filter(Boolean);
+
+  const results = [];
+
+  for (
+    const listingId of
+    uniqueListingIds
+  ) {
+    console.log(
+      `[DUNNES IMPORT] Starting listing ${listingId}`,
+    );
+
+    try {
+      const result =
+        await importDunnesListing({
+          listingId,
+          storeId,
+        });
+
+      results.push(result);
+    } catch (error) {
+      console.error(
+        `[DUNNES IMPORT] Listing ${listingId} failed:`,
+        error.message,
+      );
+
+      results.push({
+        success: false,
+        listingId,
+        storeId,
+        importedCount: 0,
+        status: 'failed',
+        error:
+          error.message ||
+          'The listing could not be imported.',
+      });
+    }
+  }
+
+  const successfulImports =
+    results.filter(
+      (result) =>
+        result.success,
+    );
+
+  const failedImports =
+    results.filter(
+      (result) =>
+        !result.success,
+    );
+
+  const totalImported =
+    successfulImports.reduce(
+      (
+        runningTotal,
+        result,
+      ) =>
+        runningTotal +
+        Number(
+          result.importedCount ||
+            0,
+        ),
+      0,
+    );
 
   return {
-    listingId,
-    listingName,
     storeId,
-    importedCount,
-    totalAvailable,
-    pagesProcessed: pageNumber,
+    listingsRequested:
+      uniqueListingIds.length,
+    listingsCompleted:
+      successfulImports.length,
+    listingsFailed:
+      failedImports.length,
+    totalImported,
+    results,
   };
 }
