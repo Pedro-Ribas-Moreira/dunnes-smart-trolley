@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 
 import { searchLiveDunnesProducts } from './dunnesLiveSearchService.js';
 import { rankDunnesCandidates } from './productMatchingAgentService.js';
+import { searchDunnesProduceWebsite } from './produceWebsiteSearchAgentService.js';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -136,7 +137,11 @@ export async function identifyLooseProduce({ imageBuffer, mimeType }) {
   }
 
   const externalProduct = createSearchProduct(recognition);
-  const candidates = await searchLiveDunnesProducts(externalProduct);
+  let candidates = await searchLiveDunnesProducts(externalProduct);
+
+  if (candidates.length === 0) {
+    candidates = await searchDunnesProduceWebsite(recognition);
+  }
 
   if (candidates.length === 0) {
     return {
