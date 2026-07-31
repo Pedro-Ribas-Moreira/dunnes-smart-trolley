@@ -1,6 +1,6 @@
 import cors from 'cors';
 import express from 'express';
-
+import dunnesRoutes from './routes/dunnesRoutes.js';
 import productRoutes from './routes/productRoutes.js';
 import shoppingSessionRoutes from './routes/shoppingSessionRoutes.js';
 
@@ -44,13 +44,13 @@ app.get('/api/health', (request, response) => {
     service: 'Dunnes Smart Trolley API',
   });
 });
-
 app.use('/api/products', productRoutes);
 
 app.use(
   '/api/shopping-sessions',
   shoppingSessionRoutes,
 );
+  app.use('/api/dunnes', dunnesRoutes);
 
 app.use((request, response) => {
   response.status(404).json({
