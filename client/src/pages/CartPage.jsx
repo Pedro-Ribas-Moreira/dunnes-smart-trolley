@@ -22,6 +22,8 @@ import {
   finishShoppingSession,
   loadShoppingSessions,
 } from '../services/shoppingSessionApiService';
+
+const isDev = import.meta.env.DEV;
 function formatSessionDate(value) {
   if (!value) {
     return 'Date unavailable';
@@ -257,12 +259,14 @@ export default function CartPage({
 
     return (
       <>
-      <DunnesImportPanel
-      user={user}
-    />
-      <DunnesCrawlerPanel user={user} />
+        {isDev && (
+          <>
+            <DunnesImportPanel user={user} />
+            <DunnesCrawlerPanel user={user} />
+          </>
+        )}
 
-      <div className="mt-4 space-y-3">
+        <div className="mt-4 space-y-3">
         {shoppingSessions.map(
           (session) => {
             const isExpanded =

@@ -1,4 +1,4 @@
-import React, {
+import {
   useCallback,
   useEffect,
   useState,
@@ -340,6 +340,20 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [loadingAuth, setLoadingAuth] =
     useState(true);
+  const [appStage, setAppStage] =
+    useState('splash');
+  const [authMode, setAuthMode] =
+    useState('login');
+  const [authEmail, setAuthEmail] =
+    useState('');
+  const [authPassword, setAuthPassword] =
+    useState('');
+  const [authName, setAuthName] =
+    useState('');
+  const [authError, setAuthError] =
+    useState('');
+  const [authLoading, setAuthLoading] =
+    useState(false);
 
   const [activeTab, setActiveTab] =
     useState('scan');
@@ -359,31 +373,38 @@ export default function App() {
     const unsubscribe =
       onAuthStateChanged(
         auth,
-        async (currentUser) => {
+        (currentUser) => {
+          setUser(currentUser);
+          setLoadingAuth(false);
+
           if (currentUser) {
-            setUser(currentUser);
-            setLoadingAuth(false);
-            return;
-          }
-
-          try {
-            await signInAnonymously(
-              auth
-            );
-          } catch (authError) {
-            console.error(
-              'Anonymous authentication error:',
-              authError
-            );
-
-            setLoadingAuth(false);
+            setAppStage('ready');
+          } else {
+            setCartItems([]);
+            setCartError('');
+            if (appStage !== 'splash') {
+              setAppStage('auth');
+            }
           }
         }
       );
 
     return unsubscribe;
-  }, []);
+  }, [appStage]);
 
+  useEffect(() => {
+    const splashTimer = setTimeout(() => {
+      if (!user) {
+        setAppStage('auth');
+      } else {
+        setAppStage('ready');
+      }
+    }, 1200);
+
+    return () => clearTimeout(splashTimer);
+  }, [user]);
+
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!user?.uid) {
       setCartItems([]);
@@ -428,12 +449,88 @@ export default function App() {
 
     return unsubscribe;
   }, [user?.uid]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleBarcodeScanned =
     useCallback((barcode) => {
       setPendingBarcode(barcode);
       setActiveTab('confirm');
     }, []);
+
+  const handleGuestContinue = async () => {
+    setAuthError('');
+    setAuthLoading(true);
+
+    try {
+      await signInAnonymously(auth);
+      setAppStage('ready');
+    } catch (error) {
+      console.error('Guest sign-in failed:', error);
+      setAuthError(
+        'Could not continue as guest. Please try again.',
+      );
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleAuthSubmit = async (event) => {
+    event.preventDefault();
+
+    setAuthError('');
+    setAuthLoading(true);
+
+    try {
+      if (authMode === 'signup') {
+        const credential =
+          await createUserWithEmailAndPassword(
+            auth,
+            authEmail,
+            authPassword,
+          );
+
+        await updateProfile(credential.user, {
+          displayName: authName,
+        });
+
+        const profileRef = doc(
+          db,
+          'artifacts',
+          appId,
+          'users',
+          credential.user.uid,
+          'profile',
+          'details',
+        );
+
+        await setDoc(profileRef, {
+          name: authName,
+          email: authEmail,
+          createdAt: serverTimestamp(),
+        });
+
+        setAppStage('ready');
+        return;
+      }
+
+      await signInWithEmailAndPassword(
+        auth,
+        authEmail,
+        authPassword,
+      );
+
+      setAppStage('ready');
+    } catch (error) {
+      console.error('Authentication error:', error);
+      setAuthError(
+        error?.message
+          ? error.message.replace('Firebase: ', '')
+          : 'Authentication failed.',
+      );
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
   const returnToScanner =
     useCallback(() => {
@@ -507,9 +604,147 @@ export default function App() {
     );
   }
 
+  if (appStage === 'splash') {
+    return (
+      <div className="min-h-screen bg-green-700 flex items-center justify-center px-6">
+        <div className="w-full max-w-md text-center text-white">
+          <div className="mb-8">
+            <div className="mx-auto w-24 h-24 rounded-full bg-white/15 flex items-center justify-center">
+              <ScanLine size={36} className="text-white" />
+            </div>
+          </div>
+
+          <h1 className="text-4xl font-bold">Dunnes Smart Trolley</h1>
+          <p className="mt-4 text-base text-green-100/90">
+            Shop faster with barcode scanning, Dunnes matches and smart cart tracking.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (appStage === 'auth') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-6 py-10">
+        <div className="w-full max-w-md bg-white rounded-3xl border border-gray-200 shadow-xl p-8">
+          <div className="text-center mb-8">
+            <h1 className="text-2xl font-bold text-gray-900">
+              Welcome to Dunnes Smart Trolley
+            </h1>
+            <p className="mt-3 text-sm text-gray-500">
+              Log in or continue as a guest to start scanning.
+            </p>
+          </div>
+
+          <div className="mb-6 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => setAuthMode('login')}
+              className={`flex-1 rounded-2xl py-3 text-sm font-semibold ${
+                authMode === 'login'
+                  ? 'bg-green-700 text-white'
+                  : 'bg-gray-100 text-gray-700'
+              }`}
+            >
+              Log In
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuthMode('signup')}
+              className={`flex-1 rounded-2xl py-3 text-sm font-semibold ${
+                authMode === 'signup'
+                  ? 'bg-green-700 text-white'
+                  : 'bg-gray-100 text-gray-700'
+              }`}
+            >
+              Sign Up
+            </button>
+          </div>
+
+          {authError && (
+            <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {authError}
+            </div>
+          )}
+
+          <form onSubmit={handleAuthSubmit} className="space-y-4">
+            {authMode === 'signup' && (
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Name
+                </label>
+                <input
+                  type="text"
+                  value={authName}
+                  onChange={(event) =>
+                    setAuthName(event.target.value)
+                  }
+                  placeholder="Your name"
+                  required
+                  className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-green-600"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Email
+              </label>
+              <input
+                type="email"
+                value={authEmail}
+                onChange={(event) =>
+                  setAuthEmail(event.target.value)
+                }
+                placeholder="name@example.com"
+                required
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-green-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Password
+              </label>
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(event) =>
+                  setAuthPassword(event.target.value)
+                }
+                placeholder="Enter your password"
+                required
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-green-600"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full rounded-2xl bg-green-700 py-3 text-sm font-bold text-white disabled:opacity-70"
+            >
+              {authLoading ? 'Processing...' : authMode === 'signup' ? 'Create account' : 'Log in'}
+            </button>
+          </form>
+
+          <div className="mt-5 text-center">
+            <button
+              type="button"
+              onClick={handleGuestContinue}
+              disabled={authLoading}
+              className="text-sm font-semibold text-green-700 underline"
+            >
+              Continue as guest
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-100 flex justify-center">
-      <div className="w-full max-w-md min-h-screen bg-white flex flex-col shadow-xl">
+      <div className="min-h-screen bg-gray-100 flex justify-center">
+        <div className="w-full max-w-md min-h-screen bg-white flex flex-col shadow-xl">
         <header className="bg-green-800 text-white px-5 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold">
