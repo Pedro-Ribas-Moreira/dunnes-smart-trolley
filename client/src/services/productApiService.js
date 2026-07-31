@@ -1,6 +1,5 @@
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  'http://localhost:3001';
+  import.meta.env.VITE_API_BASE_URL || '';
 
 async function readApiResponse(response) {
   const contentType =
@@ -36,7 +35,8 @@ export async function lookupProduct(
 
   if (!response.ok) {
     throw new Error(
-      data.error || 'The product lookup failed.',
+      data.error ||
+        'The product lookup failed.',
     );
   }
 
@@ -53,7 +53,14 @@ export async function saveProductViaApi(
     );
   }
 
-  const idToken = await user.getIdToken();
+  const idToken = await user.getIdToken(true);
+
+  console.log('Saving product through backend', {
+    endpoint: `${API_BASE_URL}/api/products`,
+    barcode: product.barcode,
+    userId: user.uid,
+    hasToken: Boolean(idToken),
+  });
 
   const response = await fetch(
     `${API_BASE_URL}/api/products`,
@@ -69,6 +76,13 @@ export async function saveProductViaApi(
   );
 
   const data = await readApiResponse(response);
+
+  console.log('Product backend response', {
+    status: response.status,
+    success: data.success,
+    error: data.error,
+    errors: data.errors,
+  });
 
   if (!response.ok) {
     const validationMessage =

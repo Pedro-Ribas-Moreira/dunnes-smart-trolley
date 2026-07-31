@@ -60,5 +60,13 @@ export default defineConfig({
   server: {
     host: true,
     https: true,
+    proxy: {
+    '/api': {
+      target: 'http://localhost:3001',
+      changeOrigin: true,
+      secure: false,
+    },
   },
+  },
+
 });
