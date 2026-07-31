@@ -1,86 +1,120 @@
-import React, { useState } from 'react';
-import { User, Mail, Lock, LogOut } from 'lucide-react';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, signOut } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
-import { auth, db } from './firebase'; 
+import { useState } from 'react';
 
-const appId = 'dunnes-trolley';
+import {
+  Loader2,
+  LogOut,
+  User,
+} from 'lucide-react';
 
-export default function ProfilePage({ user }) {
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+import {
+  getAuthenticationErrorMessage,
+  logoutUser,
+} from '../services/authService';
 
-  const isAnonymous = user ? user.isAnonymous : true;
+export default function ProfilePage({
+  user,
+}) {
+  const [error, setError] =
+    useState('');
 
-  const handleAuth = async (e) => {
-    e.preventDefault();
+  const [loggingOut, setLoggingOut] =
+    useState(false);
+
+  const isGuest =
+    user?.isAnonymous === true;
+
+  const handleLogout = async () => {
     setError('');
-    setLoading(true);
+    setLoggingOut(true);
 
     try {
-      if (isSignUp) {
-        // 1. Create account
-        const credential = await createUserWithEmailAndPassword(auth, email, password);
-        // 2. Set profile name
-        await updateProfile(credential.user, { displayName: name });
-        // 3. Create database entry for this user's profile
-        await setDoc(doc(db, 'artifacts', appId, 'users', credential.user.uid, 'profile', 'details'), {
-          name: name,
-          email: email,
-          createdAt: new Date().toISOString()
-        });
-      } else {
-        // Log in
-        await signInWithEmailAndPassword(auth, email, password);
-      }
-    } catch (err) {
-      setError(err.message.replace('Firebase: ', ''));
+      await logoutUser();
+    } catch (logoutError) {
+      console.error(
+        'Logout failed:',
+        logoutError,
+      );
+
+      setError(
+        getAuthenticationErrorMessage(
+          logoutError,
+        ),
+      );
     } finally {
-      setLoading(false);
+      setLoggingOut(false);
     }
   };
 
-  // If already logged in (not anonymous), show details
-  if (!isAnonymous) {
-    return (
-      <div className="p-6">
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 text-center">
-          <User size={48} className="mx-auto text-green-700 mb-4" />
-          <h2 className="text-xl font-bold text-gray-800">{user.displayName}</h2>
-          <p className="text-sm text-gray-500 mb-6">{user.email}</p>
-          <button onClick={() => signOut(auth)} className="w-full bg-red-50 text-red-600 font-bold py-3 rounded-xl flex justify-center items-center gap-2">
-            <LogOut size={18} /> Log Out
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Sign Up / Log In Form
   return (
     <div className="p-6">
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-        <h2 className="text-xl font-bold text-center mb-6">{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
-        {error && <p className="text-red-500 text-sm mb-4 bg-red-50 p-2 rounded">{error}</p>}
-        
-        <form onSubmit={handleAuth} className="space-y-4">
-          {isSignUp && (
-            <input type="text" placeholder="Full Name" className="w-full p-3 bg-gray-50 border rounded-xl" value={name} onChange={(e) => setName(e.target.value)} required />
-          )}
-          <input type="email" placeholder="Email" className="w-full p-3 bg-gray-50 border rounded-xl" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          <input type="password" placeholder="Password" className="w-full p-3 bg-gray-50 border rounded-xl" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          
-          <button type="submit" className="w-full bg-green-700 text-white font-bold py-3 rounded-xl" disabled={loading}>
-            {loading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Log In')}
-          </button>
-        </form>
+      <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+        <div className="flex flex-col items-center text-center">
+          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4">
+            <User
+              size={38}
+              className="text-green-700"
+            />
+          </div>
 
-        <button onClick={() => setIsSignUp(!isSignUp)} className="w-full mt-4 text-sm text-green-700 font-semibold underline">
-          {isSignUp ? 'Already have an account? Log in' : "Don't have an account? Sign up"}
+          <h2 className="text-xl font-bold text-gray-800">
+            {isGuest
+              ? 'Guest Shopper'
+              : user?.displayName ||
+                'Shopper'}
+          </h2>
+
+          <p className="text-gray-500 mt-1">
+            {isGuest
+              ? 'Temporary guest session'
+              : user?.email}
+          </p>
+
+          {isGuest && (
+            <div className="mt-5 w-full rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left">
+              <p className="text-sm font-semibold text-amber-800">
+                You are shopping as a guest
+              </p>
+
+              <p className="mt-1 text-sm leading-5 text-amber-700">
+                Your guest account is available
+                only during the current browser
+                session.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <div
+            role="alert"
+            className="mt-5 bg-red-50 border border-red-200 rounded-xl p-3"
+          >
+            <p className="text-red-700 text-sm text-center">
+              {error}
+            </p>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={handleLogout}
+          disabled={loggingOut}
+          className="w-full mt-6 bg-red-50 text-red-600 font-bold py-3 rounded-xl flex justify-center items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {loggingOut ? (
+            <Loader2
+              size={20}
+              className="animate-spin"
+            />
+          ) : (
+            <LogOut size={20} />
+          )}
+
+          {loggingOut
+            ? 'Logging out...'
+            : isGuest
+              ? 'End Guest Session'
+              : 'Log Out'}
         </button>
       </div>
     </div>
