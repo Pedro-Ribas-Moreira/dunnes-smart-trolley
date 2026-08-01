@@ -6,10 +6,11 @@ import {
 } from './textUtils.js';
 import {
   deduplicatePromotions,
+    extractPromotionsFromProduct,
   normalisePromotion,
 } from './promotionUtils.js';
 
-function getProductSku(product) {
+export function getProductSku(product) {
   return String(
     product?.sku ||
       product?.productId ||
@@ -20,7 +21,7 @@ function getProductSku(product) {
   ).trim();
 }
 
-function getProductName(product) {
+export function getProductName(product) {
   return cleanText(
     product?.name ||
       product?.productName ||

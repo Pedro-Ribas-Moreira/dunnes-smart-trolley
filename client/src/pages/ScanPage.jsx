@@ -163,15 +163,8 @@ function ScanPage({ user, active, onBarcodeScanned, onLooseItem }) {
 
         await scanner.start(
           {
-            facingMode: {
-              ideal: 'environment',
-            },
-            width: {
-              ideal: 1920,
-            },
-            height: {
-              ideal: 1080,
-            },
+            facingMode: 'environment'
+
           },
           {
             fps: 15,

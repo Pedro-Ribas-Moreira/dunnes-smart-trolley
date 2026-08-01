@@ -19,7 +19,9 @@ export async function findOpenFoodFactsProduct(barcode) {
         },
       },
     );
-
+    if (response.status === 404) {
+      return null;
+    }
     if (!response.ok) {
       throw new Error(
         `Open Food Facts returned status ${response.status}`,

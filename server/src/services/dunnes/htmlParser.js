@@ -1,4 +1,9 @@
 import {
+  DEFAULT_STORE_ID,
+  MAX_SEARCH_RESULTS,
+} from './constants.js';
+
+import {
   createAbsoluteUrl,
   decodeHtml,
 } from './textUtils.js';

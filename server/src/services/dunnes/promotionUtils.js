@@ -192,7 +192,7 @@ export function deduplicatePromotions(
 }
 
 
-function extractPromotionsFromProduct(
+export function extractPromotionsFromProduct(
   product,
 ) {
   const regularPromotions = [];
