@@ -5,6 +5,11 @@ import React, {
 } from 'react';
 
 import {
+  deleteDoc,
+  doc,
+} from 'firebase/firestore';
+
+import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -13,10 +18,13 @@ import {
   Loader2,
   RefreshCw,
   ShoppingCart,
+  Trash2,
 } from 'lucide-react';
 
 import DunnesImportPanel from '../components/DunnesImportPanel';
 import DunnesCrawlerPanel from '../components/DunnesCrawlerPanel';
+
+import { db } from '../Firebase';
 
 import {
   finishShoppingSession,
@@ -28,6 +36,8 @@ import {
 } from '../lib/promotionPricing';
 
 const isDev = import.meta.env.DEV;
+const appId = 'dunnes-trolley';
+
 function formatSessionDate(value) {
   if (!value) {
     return 'Date unavailable';
@@ -77,6 +87,9 @@ export default function CartPage({
     useState('');
 
   const [expandedSessionId, setExpandedSessionId] =
+    useState(null);
+
+  const [removingItemId, setRemovingItemId] =
     useState(null);
 
   const cartPricing = useMemo(
@@ -184,6 +197,59 @@ export default function CartPage({
   const handleStartNewShop = () => {
     setCompletedSession(null);
     setActiveView('cart');
+  };
+
+  const handleRemoveItem = async (item) => {
+    if (!user) {
+      setError('You must be signed in to remove an item.');
+      return;
+    }
+
+    const itemId = String(
+      item.id || item.barcode || ''
+    ).trim();
+
+    if (!itemId) {
+      setError('This item could not be removed.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Remove ${item.name || 'this item'} from your trolley?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setError('');
+    setRemovingItemId(itemId);
+
+    try {
+      const cartItemReference = doc(
+        db,
+        'artifacts',
+        appId,
+        'users',
+        user.uid,
+        'cart',
+        itemId
+      );
+
+      await deleteDoc(cartItemReference);
+    } catch (removeError) {
+      console.error(
+        'Remove cart item error:',
+        removeError
+      );
+
+      setError(
+        removeError?.message ||
+          'The item could not be removed.'
+      );
+    } finally {
+      setRemovingItemId(null);
+    }
   };
 
   const toggleSession = (sessionId) => {
@@ -651,6 +717,46 @@ export default function CartPage({
                           .join(', ')}
                       </div>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveItem(item)}
+                      disabled={
+                        removingItemId ===
+                        String(
+                          item.id ||
+                            item.barcode ||
+                            ''
+                        )
+                      }
+                      className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label={`Remove ${
+                        item.name || 'item'
+                      } from trolley`}
+                    >
+                      {removingItemId ===
+                      String(
+                        item.id ||
+                          item.barcode ||
+                          ''
+                      ) ? (
+                        <Loader2
+                          size={17}
+                          className="animate-spin"
+                        />
+                      ) : (
+                        <Trash2 size={17} />
+                      )}
+
+                      {removingItemId ===
+                      String(
+                        item.id ||
+                          item.barcode ||
+                          ''
+                      )
+                        ? 'Removing...'
+                        : 'Remove item'}
+                    </button>
                   </div>
                 </div>
               </div>
