@@ -1,12 +1,23 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
+import {
+  Html5Qrcode,
+  Html5QrcodeScannerState,
+  Html5QrcodeSupportedFormats,
+} from 'html5-qrcode';
 
 import { Camera, Keyboard, Loader2, ScanLine, Search } from 'lucide-react';
 
 import { mobileLog } from '../lib/mobileLog';
 
 const READER_ID = 'barcode-reader';
+
+const GROCERY_BARCODE_FORMATS = [
+  Html5QrcodeSupportedFormats.EAN_13,
+  Html5QrcodeSupportedFormats.EAN_8,
+  Html5QrcodeSupportedFormats.UPC_A,
+  Html5QrcodeSupportedFormats.UPC_E,
+];
 
 function cleanBarcode(value) {
   return String(value).replace(/\D/g, '');
@@ -16,14 +27,39 @@ function isValidBarcode(barcode) {
   return [8, 12, 13, 14].includes(barcode.length);
 }
 
+function hasValidGtinChecksum(barcode) {
+  if (!isValidBarcode(barcode)) {
+    return false;
+  }
+
+  const digits = barcode.split('').map(Number);
+  const checkDigit = digits.pop();
+
+  const sum = digits
+    .reverse()
+    .reduce(
+      (total, digit, index) =>
+        total + digit * (index % 2 === 0 ? 3 : 1),
+      0,
+    );
+
+  return (10 - (sum % 10)) % 10 === checkDigit;
+}
+
 function calculateQrbox(viewfinderWidth, viewfinderHeight) {
   const safeWidth = Math.max(50, Number(viewfinderWidth) || 50);
 
   const safeHeight = Math.max(50, Number(viewfinderHeight) || 50);
 
-  const width = Math.max(50, Math.min(300, Math.floor(safeWidth * 0.85)));
+  const width = Math.max(
+    220,
+    Math.min(360, Math.floor(safeWidth * 0.92)),
+  );
 
-  const height = Math.max(50, Math.min(140, Math.floor(safeHeight * 0.3)));
+  const height = Math.max(
+    110,
+    Math.min(170, Math.floor(safeHeight * 0.32)),
+  );
 
   return {
     width: Math.min(width, safeWidth),
@@ -59,6 +95,10 @@ function ScanPage({ user, active, onBarcodeScanned, onLooseItem }) {
       return;
     }
 
+    if (source === 'camera' && !hasValidGtinChecksum(cleanedBarcode)) {
+      return;
+    }
+
     if (scanLockedRef.current) {
       return;
     }
@@ -68,7 +108,7 @@ function ScanPage({ user, active, onBarcodeScanned, onLooseItem }) {
     setIsProcessing(true);
     setManualError('');
 
-    await mobileLog('Barcode submitted', {
+    void mobileLog('Barcode submitted', {
       barcode: cleanedBarcode,
       source,
     });
@@ -114,16 +154,27 @@ function ScanPage({ user, active, onBarcodeScanned, onLooseItem }) {
           throw new Error('Scanner container was not found.');
         }
 
-        const scanner = new Html5Qrcode(READER_ID);
+        const scanner = new Html5Qrcode(READER_ID, {
+          formatsToSupport: GROCERY_BARCODE_FORMATS,
+          verbose: false,
+        });
 
         scannerRef.current = scanner;
 
         await scanner.start(
           {
-            facingMode: 'environment',
+            facingMode: {
+              ideal: 'environment',
+            },
+            width: {
+              ideal: 1920,
+            },
+            height: {
+              ideal: 1080,
+            },
           },
           {
-            fps: 10,
+            fps: 15,
 
             qrbox: (viewfinderWidth, viewfinderHeight) => calculateQrbox(viewfinderWidth, viewfinderHeight),
 
@@ -228,7 +279,9 @@ function ScanPage({ user, active, onBarcodeScanned, onLooseItem }) {
 
         <h2 className='text-xl font-bold text-gray-800 mt-4'>Scan a product</h2>
 
-        <p className='text-sm text-gray-500 mt-2'>Hold the barcode inside the camera frame.</p>
+        <p className='text-sm text-gray-500 mt-2'>
+          Hold the full barcode inside the frame, about 15 to 25 cm from the camera.
+        </p>
       </div>
 
       <div className='mt-6 relative w-full aspect-square bg-gray-100 rounded-3xl overflow-hidden border-2 border-gray-200 shadow-inner'>
@@ -260,6 +313,7 @@ function ScanPage({ user, active, onBarcodeScanned, onLooseItem }) {
         </div>
       ) : (
         <p className='text-sm text-gray-500 text-center mt-4'>
+          Keep the phone steady and tilt the product slightly if there is glare.
           The product will open automatically when the barcode is detected.
         </p>
       )}
